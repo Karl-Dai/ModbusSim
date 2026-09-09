@@ -2,18 +2,34 @@
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { useI18n, showAlert } from 'shared-frontend'
+import { useI18n, showAlert, vModal } from 'shared-frontend'
 import CommunicationSettings from './CommunicationSettings.vue'
-import { defaultCommunicationOptions, validCommunicationOptions } from '../communication'
+import { defaultCommunicationOptions, validCommunicationOptions, type CommunicationOptions } from '../communication'
 
 const { t } = useI18n()
 
-interface Props { show: boolean }
+interface Props { show: boolean; connectionId?: string }
+interface ConnectionSettings {
+  transport: { type: string; port: string | number; baud_rate?: number; data_bits?: number; stop_bits?: number; parity?: string }
+  config: {
+    target_address: string; port: number; slave_id: number; timeout_ms: number
+    requests: CommunicationOptions['requests']
+    tls: { enabled: boolean; ca_file: string; cert_file: string; key_file: string; pkcs12_file: string; pkcs12_password: string; accept_invalid_certs: boolean }
+    socks5: { enabled: boolean; host: string; port: number; username: string; password: string }
+  }
+  reconnect_policy: Omit<CommunicationOptions['reconnect'], 'max_attempts'> & { max_attempts: number | null }
+}
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'created'): void
+  (e: 'saved'): void
 }>()
+
+const busy = ref(false)
+const loadFailed = ref(false)
+const error = ref('')
+function close() { if (!busy.value) emit('close') }
 
 const form = ref({
   transport: 'tcp',
@@ -43,8 +59,12 @@ const socks5Port = ref(1080)
 const socks5Username = ref('')
 const socks5Password = ref('')
 
-watch(() => props.show, (visible) => {
+watch(() => [props.show, props.connectionId] as const, async ([visible, connectionId], _old, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
   if (!visible) return
+  error.value = ''
+  loadFailed.value = false
   form.value = { transport: 'tcp', target_address: '127.0.0.1', port: 502, slave_id: 1, timeout_ms: 3000 }
   communication.value = defaultCommunicationOptions()
   serialPort.value = ''
@@ -64,7 +84,43 @@ watch(() => props.show, (visible) => {
   socks5Port.value = 1080
   socks5Username.value = ''
   socks5Password.value = ''
-})
+  if (!connectionId) return
+  busy.value = true
+  try {
+    const settings = await invoke<ConnectionSettings>('get_master_connection_settings', { connectionId })
+    if (cancelled) return
+    const { config, transport, reconnect_policy } = settings
+    form.value = {
+      transport: transport.type === 'tcp_tls' ? 'tcp' : transport.type,
+      target_address: config.target_address, port: config.port,
+      slave_id: config.slave_id, timeout_ms: config.timeout_ms,
+    }
+    communication.value = { requests: config.requests, reconnect: { ...reconnect_policy, max_attempts: reconnect_policy.max_attempts ?? 0 } }
+    if (transport.type === 'rtu' || transport.type === 'ascii') {
+      serialPort.value = String(transport.port)
+      baudRate.value = transport.baud_rate!
+      dataBits.value = transport.data_bits!
+      stopBits.value = transport.stop_bits!
+      parityMode.value = transport.parity!
+    }
+    useTls.value = transport.type === 'tcp_tls'
+    tlsCaFile.value = config.tls.ca_file
+    tlsCertFile.value = config.tls.cert_file
+    tlsKeyFile.value = config.tls.key_file
+    tlsPkcs12File.value = config.tls.pkcs12_file
+    tlsPkcs12Password.value = config.tls.pkcs12_password
+    tlsAcceptInvalidCerts.value = config.tls.accept_invalid_certs
+    useSocks5.value = config.socks5.enabled
+    socks5Host.value = config.socks5.host
+    socks5Port.value = config.socks5.port
+    socks5Username.value = config.socks5.username
+    socks5Password.value = config.socks5.password
+  } catch (e) {
+    if (!cancelled) { error.value = String(e); loadFailed.value = true }
+  } finally {
+    if (!cancelled) busy.value = false
+  }
+}, { immediate: true })
 
 watch(() => form.value.transport, (val) => {
   if (val === 'rtu' || val === 'ascii') refreshSerialPorts()
@@ -93,6 +149,8 @@ async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
 }
 
 async function submit() {
+  if (busy.value || loadFailed.value) return
+  error.value = ''
   if (!validCommunicationOptions(communication.value)) {
     await showAlert(t('errors.invalidCommunicationSettings'))
     return
@@ -134,7 +192,9 @@ async function submit() {
   }
 
   try {
-    await invoke('create_master_connection', {
+    busy.value = true
+    await invoke(props.connectionId ? 'update_master_connection' : 'create_master_connection', {
+      ...(props.connectionId ? { connectionId: props.connectionId } : {}),
       request: {
         transport,
         slave_id: form.value.slave_id,
@@ -144,18 +204,16 @@ async function submit() {
           ...communication.value.reconnect,
           max_attempts: communication.value.reconnect.max_attempts || null,
         },
-        ...(useTls.value ? {
-          use_tls: true,
-          ca_file: tlsCaFile.value || undefined,
-          cert_file: tlsCertFile.value || undefined,
-          key_file: tlsKeyFile.value || undefined,
-          pkcs12_file: tlsPkcs12File.value || undefined,
-          pkcs12_password: tlsPkcs12Password.value || undefined,
-          accept_invalid_certs: tlsAcceptInvalidCerts.value || undefined,
-        } : {}),
-        ...(usesNetwork && useSocks5.value ? {
+        use_tls: form.value.transport === 'tcp' && useTls.value,
+        ca_file: tlsCaFile.value || undefined,
+        cert_file: tlsCertFile.value || undefined,
+        key_file: tlsKeyFile.value || undefined,
+        pkcs12_file: tlsPkcs12File.value || undefined,
+        pkcs12_password: tlsPkcs12Password.value || undefined,
+        accept_invalid_certs: tlsAcceptInvalidCerts.value || undefined,
+        ...(usesNetwork ? {
           socks5: {
-            enabled: true,
+            enabled: useSocks5.value,
             host: socks5Host.value.trim(),
             port: socks5Port.value,
             username: socks5Username.value,
@@ -165,17 +223,21 @@ async function submit() {
       }
     })
     emit('close')
-    emit('created')
-  } catch (e) { await showAlert(String(e)) }
+    if (props.connectionId) emit('saved')
+    else emit('created')
+  } catch (e) { error.value = String(e) }
+  finally { busy.value = false }
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-backdrop" @click.self="emit('close')">
-      <div class="modal-box">
-        <div class="modal-title">{{ t('toolbar.newConnection') }}</div>
-        <div class="modal-body">
+    <div v-if="show" class="modal-backdrop" @click.self="close">
+      <div v-modal="close" class="modal-box" aria-labelledby="connection-dialog-title" :aria-busy="busy">
+        <div id="connection-dialog-title" class="modal-title">{{ t(connectionId ? 'parity.connectionSettings' : 'toolbar.newConnection') }}</div>
+        <p v-if="connectionId" class="form-hint">{{ t('dialog.editConnectionHint') }}</p>
+        <form @submit.prevent="submit">
+        <fieldset class="modal-body" :disabled="busy || loadFailed">
           <label class="form-label">
             {{ t('dialog.transport') }}
             <select v-model="form.transport" class="form-input">
@@ -218,7 +280,7 @@ async function submit() {
             </template>
           </template>
           <template v-if="form.transport === 'tcp'">
-            <label class="form-label">
+            <label class="form-label checkbox-label">
               <input type="checkbox" v-model="useTls" /> {{ t('dialog.enableTls') }}
             </label>
             <template v-if="useTls">
@@ -226,28 +288,28 @@ async function submit() {
                 {{ t('dialog.caFile') }}
                 <div class="file-row">
                   <input v-model="tlsCaFile" class="form-input" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                  <button class="tool-btn" @click="pickFile('ca')">...</button>
+                  <button type="button" class="tool-btn" @click="pickFile('ca')">...</button>
                 </div>
               </label>
               <label class="form-label">
                 {{ t('dialog.clientCert') }}
                 <div class="file-row">
                   <input v-model="tlsCertFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button class="tool-btn" @click="pickFile('cert')">...</button>
+                  <button type="button" class="tool-btn" @click="pickFile('cert')">...</button>
                 </div>
               </label>
               <label class="form-label">
                 {{ t('dialog.clientKey') }}
                 <div class="file-row">
                   <input v-model="tlsKeyFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button class="tool-btn" @click="pickFile('key')">...</button>
+                  <button type="button" class="tool-btn" @click="pickFile('key')">...</button>
                 </div>
               </label>
               <label class="form-label">
                 {{ t('dialog.pkcs12File') }}
                 <div class="file-row">
                   <input v-model="tlsPkcs12File" class="form-input" type="text" :placeholder="t('dialog.pkcs12FilePlaceholder')" />
-                  <button class="tool-btn" @click="pickFile('pkcs12')">...</button>
+                  <button type="button" class="tool-btn" @click="pickFile('pkcs12')">...</button>
                 </div>
               </label>
               <label class="form-label" v-if="tlsPkcs12File">
@@ -264,11 +326,12 @@ async function submit() {
               {{ t('dialog.serialPort') }}
               <div class="file-row">
                 <select v-model="serialPort" class="form-input">
+                  <option v-if="serialPort && !serialPorts.some(p => p.name === serialPort)" :value="serialPort">{{ serialPort }}</option>
                   <option v-for="p in serialPorts" :key="p.name" :value="p.name">
                     {{ p.name }}{{ p.description ? ` (${p.description})` : '' }}
                   </option>
                 </select>
-                <button class="tool-btn" @click="refreshSerialPorts" :title="t('dialog.refreshSerialPorts')">&#x21bb;</button>
+                <button type="button" class="tool-btn" @click="refreshSerialPorts" :title="t('dialog.refreshSerialPorts')">&#x21bb;</button>
               </div>
             </label>
             <label class="form-label">
@@ -314,11 +377,13 @@ async function submit() {
           </label>
           <div id="communication-timeout-hint" class="form-hint timeout-hint">{{ t('dialog.communicationTimeoutHint') }}</div>
           <CommunicationSettings v-model="communication" />
-        </div>
+        </fieldset>
+        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <div class="modal-footer">
-          <button class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
-          <button class="btn btn-primary" @click="submit">{{ t('common.create') }}</button>
+          <button type="button" class="btn btn-secondary" :disabled="busy" @click="close">{{ t('common.cancel') }}</button>
+          <button type="submit" class="btn btn-primary" :disabled="busy || loadFailed">{{ t(connectionId ? 'common.save' : 'common.create') }}</button>
         </div>
+        </form>
       </div>
     </div>
   </Teleport>
@@ -328,16 +393,18 @@ async function submit() {
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal-box { box-sizing: border-box; background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
-.modal-body { display: flex; flex-direction: column; gap: 12px; }
+.modal-body { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.form-error { color: var(--c-red); white-space: pre-wrap; overflow-wrap: anywhere; }
+button:disabled { opacity: 0.4; cursor: default; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6c7086; }
+.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--c-subtext0); }
 .checkbox-label { flex-direction: row; align-items: center; }
 .form-hint { margin-top: -6px; color: #a6adc8; font-size: 11px; line-height: 1.4; }
 .timeout-hint { max-width: 300px; font-size: 12px; line-height: 1.5; }
 .form-input { padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .form-input:focus { outline: none; border-color: #89b4fa; }
 .file-row { display: flex; gap: 4px; }
-.file-row > input, .file-row > select { flex: 1; }
+.file-row > input, .file-row > select { flex: 1; min-width: 0; }
 .tool-btn { padding: 4px 8px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; cursor: pointer; font-size: 14px; }
 .tool-btn:hover { background: #45475a; }
 .btn { padding: 7px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }

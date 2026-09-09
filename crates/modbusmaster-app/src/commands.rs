@@ -222,20 +222,12 @@ pub struct CreateMasterRequest {
     pub socks5: Option<Socks5Config>,
 }
 
-#[tauri::command]
-pub async fn create_master_connection(
-    state: State<'_, AppState>,
+pub(crate) fn build_master_connection(
     request: CreateMasterRequest,
-) -> Result<MasterConnectionInfo, String> {
+    log_collector: Arc<LogCollector>,
+) -> Result<MasterConnection, String> {
     request.requests.validate()?;
     request.reconnect_policy.validate()?;
-    let id = {
-        let mut counter = state.next_conn_id.write().await;
-        let id = format!("master_{}", *counter);
-        *counter += 1;
-        id
-    };
-
     let transport = to_transport(&request.transport);
     let socks5 = request.socks5.unwrap_or_default();
     socks5.validate()?;
@@ -268,10 +260,27 @@ pub async fn create_master_connection(
         socks5,
     };
 
-    let log_collector = Arc::new(LogCollector::new());
     let mut connection =
-        MasterConnection::new(config.clone(), transport).with_log_collector(log_collector.clone());
+        MasterConnection::new(config, transport).with_log_collector(log_collector.clone());
     connection.reconnect_policy = request.reconnect_policy;
+
+    Ok(connection)
+}
+
+#[tauri::command]
+pub async fn create_master_connection(
+    state: State<'_, AppState>,
+    request: CreateMasterRequest,
+) -> Result<MasterConnectionInfo, String> {
+    let log_collector = Arc::new(LogCollector::new());
+    let connection = build_master_connection(request, log_collector.clone())?;
+    let config = &connection.config;
+    let id = {
+        let mut counter = state.next_conn_id.write().await;
+        let id = format!("master_{}", *counter);
+        *counter += 1;
+        id
+    };
 
     let info = MasterConnectionInfo {
         id: id.clone(),

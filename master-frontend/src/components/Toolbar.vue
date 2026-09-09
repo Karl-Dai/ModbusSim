@@ -24,6 +24,7 @@ const refreshTree = inject<() => void>('refreshTree')!
 
 const currentProjectPath = ref<string | null>(null)
 const showNewConn = ref(false)
+const editingConnectionId = ref<string | null>(null)
 const showNewScanGroup = ref(false)
 const showWriteModal = ref(false)
 const showScanDialog = ref(false)
@@ -152,6 +153,10 @@ const hasConnection = () => selectedConnectionId.value !== null
         <button class="toolbar-btn" @click="showNewConn = true">
           <span class="btn-icon">+</span> {{ t('toolbar.newConnection') }}
         </button>
+        <button class="toolbar-btn" :disabled="!hasConnection() || !isDisconnected()"
+          :title="t('dialog.editConnectionHint')" @click="editingConnectionId = selectedConnectionId">
+          {{ t('parity.connectionSettings') }}
+        </button>
       </div>
 
       <div class="toolbar-divider"></div>
@@ -205,6 +210,8 @@ const hasConnection = () => selectedConnectionId.value !== null
   </div>
 
   <NewConnectionDialog :show="showNewConn" @close="showNewConn = false" @created="refreshTree" />
+  <NewConnectionDialog v-if="editingConnectionId" :show="true" :connection-id="editingConnectionId"
+    @close="editingConnectionId = null" @saved="refreshTree" />
   <NewScanGroupDialog
     :show="showNewScanGroup"
     :connection-id="selectedConnectionId"

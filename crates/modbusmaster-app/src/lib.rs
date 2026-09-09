@@ -1,5 +1,6 @@
 mod analytics;
 mod commands;
+mod connection_settings;
 mod state;
 pub mod update;
 
@@ -23,6 +24,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Connection commands
             commands::create_master_connection,
+            connection_settings::get_master_connection_settings,
+            connection_settings::update_master_connection,
             commands::connect_master,
             commands::disconnect_master,
             commands::delete_master_connection,

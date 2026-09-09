@@ -266,6 +266,7 @@ const messages = {
     slaveName: '从站名称',
     slaveNamePlaceholder: '可选，例如：1号设备',
     timeout: '超时(ms)',
+    editConnectionHint: '断开连接后可修改参数；保留现有连接和扫描组。',
     communicationTimeout: '通信超时(ms)',
     communicationTimeoutHint: '等待网络连接建立或每次读写响应的时间上限。3000 ms = 3 秒。',
     communicationSettings: '通信与合包设置',

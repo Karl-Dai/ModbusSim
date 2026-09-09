@@ -263,6 +263,7 @@ const messages: Messages = {
     slaveName: 'Slave Name',
     slaveNamePlaceholder: 'Optional, e.g. Device 1',
     timeout: 'Timeout (ms)',
+    editConnectionHint: 'Disconnect before editing connection settings. The connection and scan groups are preserved.',
     communicationTimeout: 'Communication timeout (ms)',
     communicationTimeoutHint: 'Time limit for establishing a network connection or waiting for each read/write response. 3000 ms = 3 seconds.',
     communicationSettings: 'Communication and batching',
