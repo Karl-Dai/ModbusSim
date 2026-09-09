@@ -832,8 +832,8 @@ function toggleAddrMode() {
 }
 
 .search-input {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 160px;
+  min-width: min(160px, 100%);
   padding: 4px 8px;
   background: var(--c-surface0);
   border: 1px solid var(--c-surface1);

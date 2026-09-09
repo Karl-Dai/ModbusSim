@@ -139,66 +139,69 @@ const hasConnection = () => selectedConnectionId.value !== null
 
 <template>
   <div class="toolbar">
-    <div class="toolbar-group">
-      <button class="toolbar-btn" @click="openProject" :title="t('toolbar.openProjectTitle')">{{ t('toolbar.open') }}</button>
-      <button class="toolbar-btn" @click="saveProject" :title="t('toolbar.saveProjectTitle')">{{ t('common.save') }}</button>
-      <button class="toolbar-btn" @click="saveProjectAs" :title="t('toolbar.saveAsTitle')">{{ t('toolbar.saveAs') }}</button>
+    <div class="toolbar-main">
+      <div class="toolbar-group">
+        <button class="toolbar-btn" @click="openProject" :title="t('toolbar.openProjectTitle')">{{ t('toolbar.open') }}</button>
+        <button class="toolbar-btn" @click="saveProject" :title="t('toolbar.saveProjectTitle')">{{ t('common.save') }}</button>
+        <button class="toolbar-btn" @click="saveProjectAs" :title="t('toolbar.saveAsTitle')">{{ t('toolbar.saveAs') }}</button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-btn" @click="showNewConn = true">
+          <span class="btn-icon">+</span> {{ t('toolbar.newConnection') }}
+        </button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-btn btn-start" :disabled="!hasConnection() || isConnected() || isReconnecting()" @click="connectMaster">
+          {{ t('toolbar.connect') }}
+        </button>
+        <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || isDisconnected()" @click="disconnectMaster">
+          {{ isReconnecting() ? t('toolbar.cancelReconnect') : t('toolbar.disconnect') }}
+        </button>
+        <button class="toolbar-btn btn-close" :disabled="!hasConnection()" @click="deleteMaster">
+          {{ t('common.delete') }}
+        </button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-btn" :disabled="!hasConnection()" @click="showNewScanGroup = true">
+          <span class="btn-icon">+</span> {{ t('toolbar.addScanGroup') }}
+        </button>
+        <button class="toolbar-btn btn-start" :disabled="!hasConnection() || !isConnected()" @click="startAllPolling">
+          {{ t('toolbar.startAll') }}
+        </button>
+        <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || !isConnected()" @click="stopAllPolling">
+          {{ t('toolbar.stopAll') }}
+        </button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showWriteModal = true">
+          {{ t('toolbar.write') }}
+        </button>
+        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showScanDialog = true">
+          {{ t('toolbar.scan') }}
+        </button>
+      </div>
+
     </div>
-
-    <div class="toolbar-divider"></div>
-
-    <div class="toolbar-group">
-      <button class="toolbar-btn" @click="showNewConn = true">
-        <span class="btn-icon">+</span> {{ t('toolbar.newConnection') }}
+    <div class="toolbar-aside">
+      <button class="toolbar-btn" :disabled="updateBusy" @click="manualCheckUpdate">
+        <span aria-live="polite">{{ updateButtonLabel }}</span>
       </button>
+      <LangToggle />
+      <VersionBadge />
+      <span class="toolbar-title">{{ t('toolbar.appTitleMaster') }}</span>
     </div>
-
-    <div class="toolbar-divider"></div>
-
-    <div class="toolbar-group">
-      <button class="toolbar-btn btn-start" :disabled="!hasConnection() || isConnected() || isReconnecting()" @click="connectMaster">
-        {{ t('toolbar.connect') }}
-      </button>
-      <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || isDisconnected()" @click="disconnectMaster">
-        {{ isReconnecting() ? t('toolbar.cancelReconnect') : t('toolbar.disconnect') }}
-      </button>
-      <button class="toolbar-btn btn-close" :disabled="!hasConnection()" @click="deleteMaster">
-        {{ t('common.delete') }}
-      </button>
-    </div>
-
-    <div class="toolbar-divider"></div>
-
-    <div class="toolbar-group">
-      <button class="toolbar-btn" :disabled="!hasConnection()" @click="showNewScanGroup = true">
-        <span class="btn-icon">+</span> {{ t('toolbar.addScanGroup') }}
-      </button>
-      <button class="toolbar-btn btn-start" :disabled="!hasConnection() || !isConnected()" @click="startAllPolling">
-        {{ t('toolbar.startAll') }}
-      </button>
-      <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || !isConnected()" @click="stopAllPolling">
-        {{ t('toolbar.stopAll') }}
-      </button>
-    </div>
-
-    <div class="toolbar-divider"></div>
-
-    <div class="toolbar-group">
-      <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showWriteModal = true">
-        {{ t('toolbar.write') }}
-      </button>
-      <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showScanDialog = true">
-        {{ t('toolbar.scan') }}
-      </button>
-    </div>
-
-    <div class="toolbar-spacer"></div>
-    <button class="toolbar-btn" :disabled="updateBusy" @click="manualCheckUpdate">
-      <span aria-live="polite">{{ updateButtonLabel }}</span>
-    </button>
-    <LangToggle />
-    <VersionBadge />
-    <span class="toolbar-title">{{ t('toolbar.appTitleMaster') }}</span>
   </div>
 
   <NewConnectionDialog :show="showNewConn" @close="showNewConn = false" @created="refreshTree" />
@@ -232,6 +235,6 @@ const hasConnection = () => selectedConnectionId.value !== null
 .btn-start { color: #a6e3a1; }
 .btn-stop { color: #fab387; }
 .btn-close { color: #f38ba8; }
-.toolbar-spacer { flex: 1; }
+.toolbar-aside > * { flex: none; }
 .toolbar-title { font-size: 13px; font-weight: 600; color: #6c7086; padding-right: 8px; }
 </style>

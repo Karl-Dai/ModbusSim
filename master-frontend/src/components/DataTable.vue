@@ -322,7 +322,7 @@ const valueColumnLabel = computed(() => {
 
     <template v-else>
       <div class="table-header">
-        <span class="header-title">{{ selectedScanGroup.name }} - {{ fcLabel }}</span>
+        <span class="header-title" :title="`${selectedScanGroup.name} - ${fcLabel}`">{{ selectedScanGroup.name }} - {{ fcLabel }}</span>
         <span v-if="errorMsg" class="error-badge" :title="errorMsg">ERR</span>
 
         <!-- Format selector (only for register types, not booleans) -->
@@ -351,8 +351,13 @@ const valueColumnLabel = computed(() => {
         <div class="error-text">{{ errorMsg }}</div>
       </div>
 
-      <div v-else ref="scrollContainerRef" class="table-scroll">
+      <div v-else ref="scrollContainerRef" class="table-scroll" :style="{ '--table-min-width': isBoolScanGroup ? '260px' : '430px' }">
         <table class="table">
+          <colgroup>
+            <col style="width: 90px" />
+            <col v-if="!isBoolScanGroup" style="width: 120px" />
+            <col />
+          </colgroup>
           <thead>
             <tr>
               <th class="col-addr">{{ t('table.address') }}</th>
@@ -362,7 +367,7 @@ const valueColumnLabel = computed(() => {
             </tr>
           </thead>
         </table>
-        <div :style="{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }">
+        <div class="virtual-body" :style="{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }">
           <div
             v-for="virtualRow in rowVirtualizer.getVirtualItems()"
             :key="displayRows[virtualRow.index]?.address ?? virtualRow.index"
@@ -441,6 +446,7 @@ const valueColumnLabel = computed(() => {
 
 .table-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
@@ -450,6 +456,10 @@ const valueColumnLabel = computed(() => {
 }
 
 .header-title {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 600;
   color: #89b4fa;
@@ -457,6 +467,7 @@ const valueColumnLabel = computed(() => {
 }
 
 .format-select {
+  flex: none;
   padding: 2px 6px;
   background: #313244;
   border: 1px solid #45475a;
@@ -472,7 +483,8 @@ const valueColumnLabel = computed(() => {
 }
 
 .search-input {
-  flex: 1;
+  flex: 1 1 140px;
+  min-width: min(140px, 100%);
   max-width: 160px;
   padding: 3px 8px;
   background: #313244;
@@ -511,19 +523,26 @@ const valueColumnLabel = computed(() => {
 
 .table-scroll {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: auto;
   contain: strict;
 }
 
+.table, .virtual-body {
+  min-width: var(--table-min-width);
+}
+
 .table {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 12px;
 }
 
 .table th {
-  position: sticky;
-  top: 0;
   background: #1e1e2e;
   color: #6c7086;
   font-weight: 500;
@@ -619,11 +638,13 @@ const valueColumnLabel = computed(() => {
 }
 
 .vcol.col-addr {
+  flex: 0 0 90px;
   width: 90px;
   min-width: 90px;
 }
 
 .vcol.col-raw {
+  flex: 0 0 120px;
   width: 120px;
   min-width: 120px;
   font-family: monospace;
