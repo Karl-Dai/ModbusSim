@@ -8,6 +8,36 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.3] - 2026-09-09
+
+### Highlights / 亮点
+
+- 从站公共界面对齐 IEC104：统一分组菜单、可拖动布局、弹窗和中文寄存器分组。 / Slave common UI aligned with IEC104: grouped menus, resizable layout, consistent dialogs and localized register groups.
+- 显示真实客户端数量、对端地址与连接时间，支持 TCP、TLS、RTU-over-TCP。 / Show live client counts, peer addresses and connection times for TCP, TLS and RTU-over-TCP.
+- 补齐寄存器 CSV 导入导出、批量操作、报文解析和日志交互；变位启停归入模拟设置。 / Add register CSV workflows, batch actions, frame tools and richer logs; control point mutation through simulation settings.
+- 主站支持请求间隔、单次读取上限和重连参数，读取自动分包并保留旧项目默认值。 / Master adds request pacing, read limits and reconnect settings, with automatic read batching and backward-compatible project defaults.
+
+### Added 新增
+
+- 从站新增全部启停、批量连接删除、停止状态下编辑监听/串口参数、工程路径打开和保存快捷键。/ Slave adds start/stop all, batch connection deletion, endpoint/serial editing while stopped, project opening by path and save shortcuts.
+- 寄存器新增 CSV 模板、预校验、追加与替换导入，以及多选复制、批量赋值、编辑和删除。导入冲突时整批拒绝，替换需确认并停止连接。/ Registers gain CSV templates, validation, append/replace import, multi-selection copy, batch values, editing and deletion. Conflicting imports are rejected as a whole; replacement requires confirmation and a stopped connection.
+- 工具支持 TCP/RTU/ASCII 请求与响应解析、MBAP/CRC/LRC 校验及 PLC 地址换算；日志支持暂停、自动滚动、筛选结果复制和文件导出。/ Tools inspect TCP/RTU/ASCII requests and responses, validate MBAP/CRC/LRC and convert PLC addresses; logs gain pause, auto-scroll, filtered copy and file export.
+- 主站读取配置范围为每请求 1–125 个寄存器或 1–2000 位，请求间隔为 0–60000 ms。/ Master read limits support 1–125 registers or 1–2000 bits per request and a request interval of 0–60000 ms.
+
+### Fixed 修复
+
+- 修复寄存器删除命令未注册、异步旧日志/数值回写、CSV 地址重叠和无符号类型名称兼容问题。/ Fixes an unregistered register-deletion command, stale asynchronous log/value updates, CSV overlap handling and unsigned-type name compatibility.
+- 移除顶部容易误导的变位总开关；启用点位配置后立即运行，并由表格独立刷新数值。模拟设置执行期间可关闭抽屉，后台任务继续使用原目标。/ Removes the misleading toolbar mutation switch; enabling point settings starts mutation directly while the table refreshes values independently. The simulation drawer can close during operations without changing their original targets.
+- 客户端断开和监听停止后清理连接记录，避免重启后残留旧客户端。/ Cleans up tracked clients on disconnect and listener stop to avoid stale peers after restart.
+
+### Compatibility 兼容性
+
+- 保留既有工程格式、Modbus 功能码和串口语义；旧工程未配置的请求参数使用原默认值。CSV 保存配置而不包含运行时值。/ Preserves existing project formats, Modbus function codes and serial semantics; absent request settings use their previous defaults. CSV contains configuration rather than runtime values.
+
+### Tests 测试
+
+- 增加真实客户端生命周期、请求分包/节流、CSV 原子校验、报文解析、翻译键及模拟抽屉关闭期间目标保持等回归覆盖。/ Adds regression coverage for real client lifecycle, request batching/pacing, atomic CSV validation, frame parsing, translation keys and preserved targets when closing the simulation drawer.
+
 ## [0.17.2] - 2026-08-14
 
 补丁版本:恢复 ModbusMaster 正常启动,并交付完整的从站点位工作流、SOCKS5 代理、静默后台更新和自动发布链路。无破坏性变更,现有 v1 工程文件继续兼容。

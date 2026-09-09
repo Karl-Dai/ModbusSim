@@ -3,6 +3,8 @@ import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useI18n, showAlert } from 'shared-frontend'
+import CommunicationSettings from './CommunicationSettings.vue'
+import { defaultCommunicationOptions, validCommunicationOptions } from '../communication'
 
 const { t } = useI18n()
 
@@ -20,6 +22,7 @@ const form = ref({
   slave_id: 1,
   timeout_ms: 3000,
 })
+const communication = ref(defaultCommunicationOptions())
 const serialPort = ref('')
 const baudRate = ref(9600)
 const dataBits = ref(8)
@@ -43,6 +46,7 @@ const socks5Password = ref('')
 watch(() => props.show, (visible) => {
   if (!visible) return
   form.value = { transport: 'tcp', target_address: '127.0.0.1', port: 502, slave_id: 1, timeout_ms: 3000 }
+  communication.value = defaultCommunicationOptions()
   serialPort.value = ''
   baudRate.value = 9600
   dataBits.value = 8
@@ -89,6 +93,10 @@ async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
 }
 
 async function submit() {
+  if (!validCommunicationOptions(communication.value)) {
+    await showAlert(t('errors.invalidCommunicationSettings'))
+    return
+  }
   const needsSerial = form.value.transport === 'rtu' || form.value.transport === 'ascii'
   const usesNetwork = form.value.transport === 'tcp' || form.value.transport === 'rtu_over_tcp'
   if (needsSerial && !serialPort.value) {
@@ -131,6 +139,11 @@ async function submit() {
         transport,
         slave_id: form.value.slave_id,
         timeout_ms: form.value.timeout_ms,
+        requests: communication.value.requests,
+        reconnect_policy: {
+          ...communication.value.reconnect,
+          max_attempts: communication.value.reconnect.max_attempts || null,
+        },
         ...(useTls.value ? {
           use_tls: true,
           ca_file: tlsCaFile.value || undefined,
@@ -296,9 +309,11 @@ async function submit() {
             <input v-model.number="form.slave_id" class="form-input" type="number" min="1" max="247" />
           </label>
           <label class="form-label">
-            {{ t('dialog.timeout') }}
-            <input v-model.number="form.timeout_ms" class="form-input" type="number" min="100" max="30000" />
+            {{ t('dialog.communicationTimeout') }}
+            <input v-model.number="form.timeout_ms" class="form-input" type="number" min="100" max="30000" aria-describedby="communication-timeout-hint" />
           </label>
+          <div id="communication-timeout-hint" class="form-hint timeout-hint">{{ t('dialog.communicationTimeoutHint') }}</div>
+          <CommunicationSettings v-model="communication" />
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
@@ -311,13 +326,14 @@ async function submit() {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { box-sizing: border-box; background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; min-width: 340px; max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-box { box-sizing: border-box; background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
 .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6c7086; }
 .checkbox-label { flex-direction: row; align-items: center; }
 .form-hint { margin-top: -6px; color: #a6adc8; font-size: 11px; line-height: 1.4; }
+.timeout-hint { max-width: 300px; font-size: 12px; line-height: 1.5; }
 .form-input { padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .form-input:focus { outline: none; border-color: #89b4fa; }
 .file-row { display: flex; gap: 4px; }

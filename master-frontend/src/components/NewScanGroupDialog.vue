@@ -24,6 +24,13 @@ watch(() => props.show, (visible) => {
 
 async function submit() {
   if (!props.connectionId) return
+  if (!Number.isInteger(form.value.start_address) || form.value.start_address < 0
+    || !Number.isInteger(form.value.quantity) || form.value.quantity < 1 || form.value.quantity > 65535
+    || form.value.start_address + form.value.quantity > 65536
+    || !Number.isInteger(form.value.interval_ms) || form.value.interval_ms < 100 || form.value.interval_ms > 60000) {
+    await showAlert(t('errors.invalidScanRange'))
+    return
+  }
   try {
     await invoke('add_scan_group', {
       connectionId: props.connectionId,
@@ -66,12 +73,14 @@ async function submit() {
           </label>
           <label class="form-label">
             {{ t('table.quantity') }}
-            <input v-model.number="form.quantity" class="form-input" type="number" min="1" max="125" />
+            <input v-model.number="form.quantity" class="form-input" type="number" min="1" :max="Math.min(65535, 65536 - form.start_address)" aria-describedby="scan-quantity-hint" />
           </label>
+          <p id="scan-quantity-hint" class="form-hint">{{ t('dialog.scanQuantityHint') }}</p>
           <label class="form-label">
             {{ t('dialog.scanInterval') }}
-            <input v-model.number="form.interval_ms" class="form-input" type="number" min="100" max="60000" />
+            <input v-model.number="form.interval_ms" class="form-input" type="number" min="100" max="60000" aria-describedby="scan-interval-hint" />
           </label>
+          <p id="scan-interval-hint" class="form-hint">{{ t('dialog.scanIntervalHint') }}</p>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
@@ -84,11 +93,12 @@ async function submit() {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; min-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-box { box-sizing: border-box; background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
 .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6c7086; }
+.form-hint { margin: -6px 0 0; color: #a6adc8; font-size: 12px; line-height: 1.5; }
 .form-input { padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
 .form-input:focus { outline: none; border-color: #89b4fa; }
 .btn { padding: 7px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }

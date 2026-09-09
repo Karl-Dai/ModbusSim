@@ -388,13 +388,13 @@ async function handleEditKeydown(e: KeyboardEvent) {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .empty-state {
   padding: 24px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-align: center;
   font-size: 12px;
 }
@@ -403,26 +403,26 @@ async function handleEditKeydown(e: KeyboardEvent) {
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: #89b4fa;
-  border-bottom: 1px solid #313244;
+  color: var(--c-blue);
+  border-bottom: 1px solid var(--c-surface0);
   margin-bottom: 4px;
 }
 
 .panel-hint {
   padding: 6px 12px;
   font-size: 11px;
-  color: #fab387;
+  color: var(--c-peach);
 }
 
 .value-section {
   padding: 4px 0;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .section-title {
   padding: 4px 12px;
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   text-transform: uppercase;
 }
 
@@ -433,12 +433,12 @@ async function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .value-label {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
 }
 
 .value-data {
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   text-align: right;
 }
@@ -455,16 +455,16 @@ async function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .value-data.editable:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .panel-edit-input {
   width: 120px;
   padding: 1px 6px;
-  background: #1e1e2e;
-  border: 1px solid #89b4fa;
+  background: var(--c-base);
+  border: 1px solid var(--c-blue);
   border-radius: 3px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 12px;
   text-align: right;

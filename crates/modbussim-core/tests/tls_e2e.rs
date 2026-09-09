@@ -265,8 +265,20 @@ async fn test_tls_read_holding_registers() {
         _ => panic!("unexpected result type"),
     }
 
+    assert_eq!(slave.clients.list().len(), 1);
+    assert!(slave.clients.list()[0]
+        .peer_address
+        .starts_with("127.0.0.1:"));
     master.disconnect().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !slave.clients.list().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("TLS client must disappear after disconnect");
     slave.stop().await.unwrap();
+    assert!(slave.clients.list().is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +344,18 @@ async fn test_tls_accept_invalid_certs() {
         _ => panic!("unexpected result type"),
     }
 
+    assert_eq!(slave.clients.list().len(), 1);
+    assert!(slave.clients.list()[0]
+        .peer_address
+        .starts_with("127.0.0.1:"));
     master.disconnect().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !slave.clients.list().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("TLS client must disappear after disconnect");
     slave.stop().await.unwrap();
+    assert!(slave.clients.list().is_empty());
 }

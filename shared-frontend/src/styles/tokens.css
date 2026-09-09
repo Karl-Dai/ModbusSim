@@ -1,0 +1,31 @@
+/* Catppuccin Mocha palette + semantic aliases.
+   Imported once from main.ts so every component can use var(--…). */
+
+:root {
+  /* Base layers (dark → light) */
+  --c-crust:    #11111b;
+  --c-mantle:   #181825;
+  --c-base:     #1e1e2e;
+  --c-surface0: #313244;
+  --c-surface1: #45475a;
+  --c-surface2: #585b70;
+  --c-overlay0: #6c7086;
+  --c-subtext0: #a6adc8;
+  --c-subtext1: #bac2de;
+  --c-text:     #cdd6f4;
+
+  /* Accents */
+  --c-blue:     #89b4fa;
+  --c-lavender: #b4befe;
+  --c-sapphire: #74c7ec;
+  --c-sky:      #89dceb;
+  --c-teal:     #94e2d5;
+  --c-green:    #a6e3a1;
+  --c-yellow:   #f9e2af;
+  --c-peach:    #fab387;
+  --c-red:      #f38ba8;
+  --c-mauve:    #cba6f7;
+
+  /* Mono stack with broader fallback chain than the original SF Mono / Fira Code. */
+  --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+}

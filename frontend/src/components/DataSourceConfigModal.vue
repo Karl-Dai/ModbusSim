@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { computed, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { showAlert, useI18n } from 'shared-frontend'
@@ -156,7 +157,7 @@ async function clear() {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-backdrop" @click.self="$emit('close')">
+    <div v-if="show" v-modal="() => emit('close')" class="modal-backdrop" @click.self="$emit('close')">
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">{{ title }}</span>
@@ -226,23 +227,23 @@ async function clear() {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .6); }
-.modal { width: 440px; max-width: 92vw; max-height: 90vh; overflow-y: auto; border: 1px solid #45475a; border-radius: 8px; background: #1e1e2e; }
-.modal-header, .modal-footer { display: flex; align-items: center; gap: 8px; padding: 16px 20px; border-color: #313244; }
-.modal-header { justify-content: space-between; border-bottom: 1px solid #313244; }
-.modal-footer { justify-content: flex-end; border-top: 1px solid #313244; }
-.modal-title { color: #cdd6f4; font-size: 15px; font-weight: 600; }
-.btn-close { border: 0; background: transparent; color: #6c7086; font-size: 20px; cursor: pointer; }
+.modal { width: 440px; max-width: 92vw; max-height: 90vh; overflow-y: auto; border: 1px solid var(--c-surface1); border-radius: 8px; background: var(--c-base); }
+.modal-header, .modal-footer { display: flex; align-items: center; gap: 8px; padding: 16px 20px; border-color: var(--c-surface0); }
+.modal-header { justify-content: space-between; border-bottom: 1px solid var(--c-surface0); }
+.modal-footer { justify-content: flex-end; border-top: 1px solid var(--c-surface0); }
+.modal-title { color: var(--c-text); font-size: 15px; font-weight: 600; }
+.btn-close { border: 0; background: transparent; color: var(--c-overlay0); font-size: 20px; cursor: pointer; }
 .modal-body { padding: 20px; }
 .form-row { display: flex; gap: 12px; }
 .form-row .form-group { flex: 1; }
 .form-group { margin-bottom: 14px; }
-.form-label { display: block; margin-bottom: 6px; color: #a6adc8; font-size: 13px; }
-.form-input { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid #45475a; border-radius: 6px; outline: none; background: #11111b; color: #cdd6f4; }
-.form-input:focus { border-color: #89b4fa; }
+.form-label { display: block; margin-bottom: 6px; color: var(--c-subtext0); font-size: 13px; }
+.form-input { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--c-surface1); border-radius: 6px; outline: none; background: var(--c-crust); color: var(--c-text); }
+.form-input:focus { border-color: var(--c-blue); }
 .values-input { min-height: 72px; resize: vertical; }
-.check-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: #cdd6f4; font-size: 13px; }
+.check-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--c-text); font-size: 13px; }
 .btn { padding: 8px 20px; border: 0; border-radius: 6px; cursor: pointer; }
-.btn-primary { background: #89b4fa; color: #1e1e2e; }
-.btn-secondary { background: #45475a; color: #cdd6f4; }
-.btn-danger { margin-right: auto; background: #f38ba8; color: #1e1e2e; }
+.btn-primary { background: var(--c-blue); color: var(--c-base); }
+.btn-secondary { background: var(--c-surface1); color: var(--c-text); }
+.btn-danger { margin-right: auto; background: var(--c-red); color: var(--c-base); }
 </style>

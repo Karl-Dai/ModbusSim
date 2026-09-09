@@ -15,6 +15,7 @@ pub mod pdu;
 pub mod project;
 pub mod reconnect;
 pub mod register;
+pub mod request;
 pub mod rtu_master;
 pub mod rtu_slave;
 pub mod rtu_tcp_master;
@@ -25,3 +26,5 @@ pub mod tls_master;
 pub mod tls_slave;
 pub mod tools;
 pub mod transport;
+
+pub mod clients;

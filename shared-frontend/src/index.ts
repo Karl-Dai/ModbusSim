@@ -59,3 +59,11 @@ export { default as VersionBadge } from './components/VersionBadge.vue'
 
 // i18n
 export { useI18n, type Locale } from './i18n'
+
+export { default as Splitter } from './components/Splitter.vue'
+export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
+
+export { default as ModalShell } from './components/ModalShell.vue'
+export { vModal } from './directives/modal'
+
+export { RELEASE_HIGHLIGHTS } from './releaseNotes'

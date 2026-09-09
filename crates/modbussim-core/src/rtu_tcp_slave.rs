@@ -3,6 +3,7 @@
 //! Standard TCP listener where frames use RTU format (slave_id + PDU + CRC,
 //! no MBAP header). Each client connection is handled in a separate task.
 
+use crate::clients::ConnectedClients;
 use crate::frame;
 use crate::log_entry::{Direction, FunctionCode};
 use crate::pdu::parse_request_pdu;
@@ -25,9 +26,13 @@ pub async fn run_rtu_tcp_slave(
     devices: SharedDevices,
     log_collector: SharedLogCollector,
     change_callback: SharedChangeCallback,
+    clients: ConnectedClients,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let addr = format!("{host}:{port}");
+    let addr = std::net::SocketAddr::new(
+        host.parse().map_err(|e| format!("Invalid address: {e}"))?,
+        port,
+    );
     let listener = TcpListener::bind(&addr)
         .await
         .map_err(|e| format!("Failed to bind {addr}: {e}"))?;
@@ -48,7 +53,11 @@ pub async fn run_rtu_tcp_slave(
                         let devices = devices.clone();
                         let log_collector = log_collector.clone();
                         let change_callback = change_callback.clone();
+                        let std_stream = stream.into_std().map_err(|e| e.to_string())?;
+                        let guard = clients.track(&std_stream).map_err(|e| e.to_string())?;
+                        let stream = tokio::net::TcpStream::from_std(std_stream).map_err(|e| e.to_string())?;
                         tokio::spawn(async move {
+                            let _guard = guard;
                             if let Err(e) = handle_client(stream, devices, log_collector, change_callback).await {
                                 log::warn!("RTU-over-TCP client {peer} error: {e}");
                             }

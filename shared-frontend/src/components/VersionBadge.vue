@@ -2,9 +2,10 @@
 import { ref, onMounted } from 'vue'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
+import { RELEASE_HIGHLIGHTS } from '../releaseNotes'
 import { useI18n } from 'shared-frontend'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const REPO_URL = 'https://github.com/Karl-Dai/ModbusSim'
 const version = ref('')
@@ -72,6 +73,7 @@ async function toggleAnalytics() {
       <div class="about-backdrop" @click="showPanel = false"></div>
       <div class="about-panel" role="dialog" :aria-label="t('about.title')">
         <div class="about-title">ModbusSim<span v-if="version"> v{{ version }}</span></div>
+        <ul class="release-notes"><li v-for="note in RELEASE_HIGHLIGHTS[locale]" :key="note">{{ note }}</li></ul>
         <label class="about-row">
           <input type="checkbox" :checked="analyticsEnabled" @change="toggleAnalytics" />
           <span>{{ t('about.analytics') }}</span>
@@ -83,6 +85,8 @@ async function toggleAnalytics() {
 </template>
 
 <style scoped>
+.release-notes { padding-left: 16px; line-height: 1.5; max-height: 40vh; overflow-y: auto; margin: 8px 0; }
+.release-notes li { margin-bottom: 6px; }
 .version-badge {
   position: relative;
   display: inline-flex;
@@ -90,7 +94,7 @@ async function toggleAnalytics() {
   gap: 2px;
   padding: 0 4px;
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-variant-numeric: tabular-nums;
 }
 .version-text {
@@ -112,7 +116,7 @@ async function toggleAnalytics() {
   line-height: 1;
 }
 .github-link:hover,
-.about-toggle:hover { color: #cdd6f4; background: #313244; }
+.about-toggle:hover { color: var(--c-text); background: var(--c-surface0); }
 .github-link svg,
 .about-toggle svg { display: block; }
 
@@ -129,11 +133,11 @@ async function toggleAnalytics() {
   z-index: 41;
   width: 240px;
   padding: 10px 12px;
-  background: #1e1e2e;
-  border: 1px solid #313244;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   text-align: left;
 }
@@ -150,7 +154,7 @@ async function toggleAnalytics() {
 .about-row input { cursor: pointer; }
 .about-note {
   margin-top: 6px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   line-height: 1.4;
 }
 </style>

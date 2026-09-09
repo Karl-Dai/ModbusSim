@@ -34,8 +34,8 @@ function pick(next: Locale) {
   margin-right: 8px;
   border-radius: 4px;
   overflow: hidden;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
 }
 
 .lang-toggle-btn {
@@ -43,20 +43,20 @@ function pick(next: Locale) {
   font-size: 12px;
   background: transparent;
   border: none;
-  color: #a6adc8;
+  color: var(--c-subtext0);
   cursor: pointer;
   font-family: inherit;
   line-height: 1.6;
 }
 
 .lang-toggle-btn:hover:not(.active) {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
 }
 
 .lang-toggle-btn.active {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
   font-weight: 600;
 }
 </style>

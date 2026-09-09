@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n, showAlert } from 'shared-frontend'
@@ -55,7 +56,7 @@ async function submit() {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-overlay" @click.self="emit('close')">
+    <div v-if="show" v-modal="() => emit('close')" class="modal-overlay" @click.self="emit('close')">
       <div class="modal-box">
         <div class="modal-title">{{ t('tree.editSlave') }}</div>
         <div class="modal-field">
@@ -77,14 +78,14 @@ async function submit() {
 
 <style scoped>
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; min-width: 320px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.modal-title { font-size: 14px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
+.modal-box { background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; padding: 20px; min-width: 320px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-title { font-size: 14px; font-weight: 600; color: var(--c-text); margin-bottom: 16px; }
 .modal-field { margin-bottom: 14px; }
-.modal-field label { display: block; font-size: 12px; color: #a6adc8; margin-bottom: 6px; }
-.modal-field input { width: 100%; box-sizing: border-box; padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; outline: none; }
-.modal-field input:focus { border-color: #89b4fa; }
+.modal-field label { display: block; font-size: 12px; color: var(--c-subtext0); margin-bottom: 6px; }
+.modal-field input { width: 100%; box-sizing: border-box; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none; }
+.modal-field input:focus { border-color: var(--c-blue); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .modal-btn { padding: 6px 16px; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; }
-.modal-btn.cancel { background: #313244; color: #a6adc8; }
-.modal-btn.confirm { background: #89b4fa; color: #1e1e2e; font-weight: 600; }
+.modal-btn.cancel { background: var(--c-surface0); color: var(--c-subtext0); }
+.modal-btn.confirm { background: var(--c-blue); color: var(--c-base); font-weight: 600; }
 </style>

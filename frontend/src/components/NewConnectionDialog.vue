@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -116,7 +117,6 @@ async function submit() {
     transportPayload = { type: 'rtu_over_tcp', host: '0.0.0.0', port: portNum }
   }
 
-  emit('close')
   try {
     await invoke('create_slave_connection', {
       request: {
@@ -136,6 +136,7 @@ async function submit() {
       }
     })
     emit('created')
+    emit('close')
   } catch (e) {
     await showAlert(String(e))
   }
@@ -144,7 +145,7 @@ async function submit() {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-overlay" @click.self="emit('close')">
+    <div v-if="show" v-modal="() => emit('close')" class="modal-overlay" @click.self="emit('close')">
       <div class="modal-box">
         <div class="modal-title">{{ t('toolbar.newConnection') }}</div>
         <div class="modal-field">
@@ -283,27 +284,27 @@ async function submit() {
 
 <style scoped>
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; min-width: 300px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.modal-title { font-size: 14px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
+.modal-box { background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; padding: 20px; min-width: 300px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-title { font-size: 14px; font-weight: 600; color: var(--c-text); margin-bottom: 16px; }
 .modal-field { margin-bottom: 14px; }
-.modal-field label { display: block; font-size: 12px; color: #a6adc8; margin-bottom: 6px; }
+.modal-field label { display: block; font-size: 12px; color: var(--c-subtext0); margin-bottom: 6px; }
 .modal-field input[type="number"], .modal-field input[type="text"], .modal-field input[type="password"] {
-  width: 100%; padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; outline: none;
+  width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none;
 }
-.modal-field input:focus { border-color: #89b4fa; }
-.form-select { width: 100%; padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; outline: none; }
-.form-select:focus { border-color: #89b4fa; }
+.modal-field input:focus { border-color: var(--c-blue); }
+.form-select { width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none; }
+.form-select:focus { border-color: var(--c-blue); }
 .file-row { display: flex; gap: 4px; }
 .file-row > input, .file-row > select { flex: 1; }
-.tool-btn { padding: 4px 8px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; cursor: pointer; font-size: 14px; }
-.tool-btn:hover { background: #45475a; }
+.tool-btn { padding: 4px 8px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); cursor: pointer; font-size: 14px; }
+.tool-btn:hover { background: var(--c-surface1); }
 .radio-group { display: flex; gap: 16px; }
-.radio-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cdd6f4; cursor: pointer; }
-.radio-label input[type="radio"] { accent-color: #89b4fa; }
+.radio-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-text); cursor: pointer; }
+.radio-label input[type="radio"] { accent-color: var(--c-blue); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .modal-btn { padding: 6px 16px; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; }
-.modal-btn.cancel { background: #313244; color: #a6adc8; }
-.modal-btn.cancel:hover { background: #45475a; }
-.modal-btn.confirm { background: #89b4fa; color: #1e1e2e; font-weight: 600; }
-.modal-btn.confirm:hover { background: #74c7ec; }
+.modal-btn.cancel { background: var(--c-surface0); color: var(--c-subtext0); }
+.modal-btn.cancel:hover { background: var(--c-surface1); }
+.modal-btn.confirm { background: var(--c-blue); color: var(--c-base); font-weight: 600; }
+.modal-btn.confirm:hover { background: var(--c-sapphire); }
 </style>

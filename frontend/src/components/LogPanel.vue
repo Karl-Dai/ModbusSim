@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { saveExport } from '../utils/saveExport'
 import { ref, inject, onMounted, watch, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { LogPanelShell, useFcLabel, type LogPanelDataSource, type LogEntry } from 'shared-frontend'
@@ -23,6 +24,7 @@ onMounted(loadConnections)
 watch(treeRefreshKey, loadConnections)
 
 const source: LogPanelDataSource = {
+  saveFile: saveExport,
   fetchLogs: (id) => invoke<LogEntry[]>('get_communication_logs', { connectionId: id }),
   clearLogs: (id) => invoke<void>('clear_communication_logs', { connectionId: id }),
   exportCsv: (id) => invoke<string>('export_logs_csv', { connectionId: id }),

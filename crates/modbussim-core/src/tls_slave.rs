@@ -4,6 +4,7 @@
 //! via `native_tls`, and then handles MBAP-framed Modbus requests on each
 //! connection in a blocking thread.
 
+use crate::clients::ConnectedClients;
 use crate::log_entry::{Direction, FunctionCode};
 use crate::mbap;
 use crate::pdu::{build_exception_pdu, build_response_pdu, parse_request_pdu, ModbusRequest};
@@ -69,6 +70,7 @@ pub async fn run_tls_slave(
     devices: SharedDevices,
     log_collector: SharedLogCollector,
     change_callback: SharedChangeCallback,
+    clients: ConnectedClients,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let acceptor = build_tls_acceptor(&tls_config)?;
@@ -110,6 +112,7 @@ pub async fn run_tls_slave(
                         let change_callback = change_callback.clone();
                         let shutdown_flag = shutdown_flag.clone();
 
+                        let clients = clients.clone();
                         tokio::task::spawn_blocking(move || {
                             // Perform TLS handshake.
                             let tls_stream = match acceptor.accept(std_stream) {
@@ -120,6 +123,7 @@ pub async fn run_tls_slave(
                                 }
                             };
 
+                            let Ok(_guard) = clients.track(tls_stream.get_ref()) else { return; };
                             if let Err(e) = handle_client(
                                 tls_stream,
                                 peer,

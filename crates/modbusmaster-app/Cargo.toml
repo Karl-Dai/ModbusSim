@@ -1,6 +1,6 @@
 [package]
 name = "modbusmaster-app"
-version = "0.17.2"
+version = "0.17.3"
 description = "ModbusMaster - Cross-platform Modbus TCP Master"
 edition = "2021"
 rust-version = "1.77.2"

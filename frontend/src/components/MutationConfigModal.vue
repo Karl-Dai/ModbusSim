@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { ref, watch, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n, showAlert } from 'shared-frontend'
@@ -87,6 +88,7 @@ async function save() {
         config,
       },
     })
+    await invoke('set_mutation_running', { running: true })
     emit('saved')
     emit('close')
   } catch (e) {
@@ -119,7 +121,7 @@ function handleBackdropClick(e: MouseEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-backdrop" @click="handleBackdropClick">
+    <div v-if="show" v-modal="() => emit('close')" class="modal-backdrop" @click="handleBackdropClick">
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">{{ title }}</span>
@@ -174,22 +176,22 @@ function handleBackdropClick(e: MouseEvent) {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; width: 380px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #313244; }
-.modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; }
-.btn-close { background: none; border: none; color: #6c7086; font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; }
-.btn-close:hover { color: #cdd6f4; }
+.modal { background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; width: 380px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--c-surface0); }
+.modal-title { font-size: 15px; font-weight: 600; color: var(--c-text); }
+.btn-close { background: none; border: none; color: var(--c-overlay0); font-size: 20px; cursor: pointer; padding: 0 4px; line-height: 1; }
+.btn-close:hover { color: var(--c-text); }
 .modal-body { padding: 20px; }
 .form-row { display: flex; gap: 12px; }
 .form-row .form-group { flex: 1; }
 .form-group { margin-bottom: 16px; }
-.form-label { display: block; font-size: 13px; color: #6c7086; margin-bottom: 6px; }
-.form-input, .form-select { width: 100%; padding: 8px 12px; background: #11111b; border: 1px solid #45475a; border-radius: 6px; color: #cdd6f4; font-size: 14px; box-sizing: border-box; }
-.form-input:focus, .form-select:focus { outline: none; border-color: #89b4fa; }
-.bool-hint { font-size: 13px; color: #a6adc8; }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px; border-top: 1px solid #313244; }
+.form-label { display: block; font-size: 13px; color: var(--c-overlay0); margin-bottom: 6px; }
+.form-input, .form-select { width: 100%; padding: 8px 12px; background: var(--c-crust); border: 1px solid var(--c-surface1); border-radius: 6px; color: var(--c-text); font-size: 14px; box-sizing: border-box; }
+.form-input:focus, .form-select:focus { outline: none; border-color: var(--c-blue); }
+.bool-hint { font-size: 13px; color: var(--c-subtext0); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--c-surface0); }
 .btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
-.btn-primary { background: #89b4fa; color: #1e1e2e; }
-.btn-secondary { background: #45475a; color: #cdd6f4; }
-.btn-danger { background: #f38ba8; color: #1e1e2e; margin-right: auto; }
+.btn-primary { background: var(--c-blue); color: var(--c-base); }
+.btn-secondary { background: var(--c-surface1); color: var(--c-text); }
+.btn-danger { background: var(--c-red); color: var(--c-base); margin-right: auto; }
 </style>

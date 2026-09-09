@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::config::RegisterValues;
 use crate::reconnect::ReconnectPolicy;
 use crate::register::RegisterDef;
+use crate::request::RequestSettings;
 use crate::socks5::Socks5Config;
 use crate::transport::{SlaveTlsConfig, TlsConfig};
 
@@ -130,6 +131,8 @@ pub struct ConnectionConfig {
     pub default_slave_id: u8,
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+    #[serde(default)]
+    pub requests: RequestSettings,
     #[serde(default)]
     pub reconnect_policy: ReconnectPolicy,
     #[serde(default, skip_serializing_if = "Socks5Config::is_disabled")]
@@ -261,6 +264,7 @@ mod tests {
             scan_groups: vec![],
             default_slave_id: 1,
             timeout_ms: 3000,
+            requests: RequestSettings::default(),
             reconnect_policy: ReconnectPolicy::default(),
             socks5: Socks5Config::default(),
         });
@@ -326,6 +330,7 @@ mod tests {
             }],
             default_slave_id: 1,
             timeout_ms: 3000,
+            requests: RequestSettings::default(),
             reconnect_policy: ReconnectPolicy::default(),
             socks5: Socks5Config {
                 enabled: true,
@@ -397,6 +402,7 @@ mod tests {
             scan_groups: vec![],
             default_slave_id: 1,
             timeout_ms: 3000,
+            requests: RequestSettings::default(),
             reconnect_policy: ReconnectPolicy::default(),
             socks5: Socks5Config::default(),
         });
@@ -477,6 +483,7 @@ mod tests {
             scan_groups: vec![],
             default_slave_id: 1,
             timeout_ms: 3000,
+            requests: RequestSettings::default(),
             reconnect_policy: ReconnectPolicy::default(),
             socks5: Socks5Config::default(),
         });
@@ -514,6 +521,7 @@ mod tests {
                 scan_groups: vec![],
                 default_slave_id: 1,
                 timeout_ms: 3000,
+                requests: RequestSettings::default(),
                 reconnect_policy: ReconnectPolicy::default(),
                 socks5: Socks5Config::default(),
             }],
@@ -605,6 +613,7 @@ mod tests {
                 scan_groups: vec![],
                 default_slave_id: 1,
                 timeout_ms: 3000,
+                requests: RequestSettings::default(),
                 reconnect_policy: ReconnectPolicy::default(),
                 socks5: Socks5Config::default(),
             }],

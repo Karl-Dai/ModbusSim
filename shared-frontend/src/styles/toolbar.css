@@ -1,0 +1,102 @@
+/* Shared toolbar chrome — imported from both master and slave main.ts so the
+   two apps stay visually identical. App-specific pieces (split buttons, the
+   gear icon, dropdown menus) live in each Toolbar.vue's scoped <style>. */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 8px;
+  gap: 0;
+  user-select: none;
+}
+
+/* Left operations region: shrinks and scrolls horizontally on narrow windows
+   so the right-side status region never gets clipped. Dropdown menus inside it
+   are teleported to <body> to avoid being clipped by this scroll container. */
+.toolbar-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.toolbar-main::-webkit-scrollbar {
+  height: 6px;
+}
+
+/* Right status region: update / language / version / about — always visible. */
+.toolbar-aside {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+}
+
+.toolbar-main > .toolbar-group,
+.toolbar-main > .toolbar-divider {
+  flex: none;
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--c-surface0);
+  margin: 0 4px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--c-text);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--c-surface0);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* These classes are scoped under .toolbar-btn so the generic names can't leak
+   onto unrelated elements elsewhere (e.g. modal .btn-close × buttons). */
+.toolbar-btn .btn-icon {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.toolbar-btn.btn-start { color: var(--c-green); }
+.toolbar-btn.btn-stop { color: var(--c-peach); }
+.toolbar-btn.btn-close { color: var(--c-red); }
+
+.toolbar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-overlay0);
+  padding-right: 8px;
+}
+.toolbar-title.as-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.toolbar-title.as-button:hover { color: var(--c-text); }

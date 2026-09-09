@@ -1,6 +1,6 @@
 [package]
 name = "modbussim-app"
-version = "0.17.2"
+version = "0.17.3"
 description = "ModbusSim - Cross-platform Modbus Simulator"
 edition = "2021"
 rust-version = "1.77.2"

@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, inject, watch, onMounted, type Ref } from 'vue'
+import { ref, inject, watch, onMounted, onBeforeUnmount, computed, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n, showAlert, showConfirm } from 'shared-frontend'
 import EditSlaveDialog from './EditSlaveDialog.vue'
+import ClientConnectionsModal from './ClientConnectionsModal.vue'
+import type { ClientInfo } from '../types/clients'
 
 const { t } = useI18n()
 
@@ -12,6 +14,7 @@ interface SlaveConnection {
   port: number
   state: string
   device_count: number
+  clients: ClientInfo[] | null
 }
 
 interface SlaveDevice {
@@ -33,10 +36,10 @@ interface TreeDevice {
 }
 
 const REGISTER_GROUPS = [
-  { type: 'coil', label: 'FC01 Coils', descKey: 'connectionTree.coilDesc' as const },
-  { type: 'discrete_input', label: 'FC02 Discrete Inputs', descKey: 'connectionTree.discreteInputDesc' as const },
-  { type: 'input_register', label: 'FC04 Input Registers', descKey: 'connectionTree.inputRegisterDesc' as const },
-  { type: 'holding_register', label: 'FC03 Holding Registers', descKey: 'connectionTree.holdingRegisterDesc' as const },
+  { type: 'coil', fc: 'FC01', labelKey: 'table.coil', descKey: 'connectionTree.coilDesc' as const },
+  { type: 'discrete_input', fc: 'FC02', labelKey: 'table.discreteInput', descKey: 'connectionTree.discreteInputDesc' as const },
+  { type: 'input_register', fc: 'FC04', labelKey: 'table.inputRegister', descKey: 'connectionTree.inputRegisterDesc' as const },
+  { type: 'holding_register', fc: 'FC03', labelKey: 'table.holdingRegister', descKey: 'connectionTree.holdingRegisterDesc' as const },
 ]
 
 const helpTooltip = ref<{ type: string; x: number; y: number } | null>(null)
@@ -57,15 +60,77 @@ const emit = defineEmits<{
 }>()
 
 const treeRefreshKey = inject<Ref<number>>('treeRefreshKey')!
+const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedSlaveId = inject<Ref<number | null>>('selectedSlaveId')!
 const selectedRegisterType = inject<Ref<string | null>>('selectedRegisterType')!
 
 const treeData = ref<TreeConnection[]>([])
+const batchMode = ref(false)
+const checkedConnections = ref(new Set<string>())
+const batchBusy = ref(false)
+function toggleChecked(id: string) {
+  const next = new Set(checkedConnections.value)
+  if (next.has(id)) next.delete(id); else next.add(id)
+  checkedConnections.value = next
+}
+async function deleteCheckedConnections() {
+  if (batchBusy.value || !checkedConnections.value.size) return
+  const ids = [...checkedConnections.value]
+  batchBusy.value = true
+  try {
+    if (!await showConfirm(t('parity.confirmDeleteConnections', { n: ids.length }))) return
+    const failures: string[] = []
+    for (const id of ids) {
+      try {
+        await invoke('delete_slave_connection', { id })
+        checkedConnections.value.delete(id)
+        if (selectedConnectionId.value === id) {
+          selectedConnectionId.value = null; selectedConnectionState.value = 'Stopped'
+          selectedSlaveId.value = null; selectedRegisterType.value = null
+        }
+      } catch (e) { failures.push(`${id}: ${String(e)}`) }
+    }
+    await loadTree()
+    if (failures.length) await showAlert(failures.join('\n'))
+    else { batchMode.value = false; checkedConnections.value = new Set() }
+  } finally { batchBusy.value = false }
+}
+const clientsConnectionId = ref<string | null>(null)
+const clientsConnection = computed(() => treeData.value.find(row => row.conn.id === clientsConnectionId.value)?.conn)
+const clientsError = ref('')
+let clientsTimer: ReturnType<typeof setTimeout> | undefined
+let disposed = false
+async function refreshClients() {
+  try {
+    const connections = await invoke<SlaveConnection[]>('list_slave_connections')
+    if (disposed) return
+    for (const row of treeData.value) {
+      const latest = connections.find(conn => conn.id === row.conn.id)
+      if (latest) {
+        row.conn = latest
+        if (latest.id === selectedConnectionId.value) selectedConnectionState.value = latest.state
+      }
+    }
+    clientsError.value = ''
+  } catch (error) {
+    if (!disposed) clientsError.value = String(error)
+  } finally {
+    if (!disposed) clientsTimer = setTimeout(refreshClients, 1000)
+  }
+}
+onMounted(() => { void refreshClients() })
+onBeforeUnmount(() => {
+  disposed = true
+  clearTimeout(clientsTimer)
+})
+
 const contextMenu = ref({ show: false, x: 0, y: 0, type: '' as 'connection' | 'slave', connectionId: '', slaveId: 0, slaveName: '', connState: '' })
 const editSlave = ref({ show: false, connectionId: '', slaveId: 0, name: '' })
 
+let treeLoadEpoch = 0
 async function loadTree() {
+  const epoch = ++treeLoadEpoch
   try {
     const connections = await invoke<SlaveConnection[]>('list_slave_connections')
     const newTree: TreeConnection[] = []
@@ -83,7 +148,9 @@ async function loadTree() {
         })),
       })
     }
+    if (disposed || epoch !== treeLoadEpoch) return
     treeData.value = newTree
+    checkedConnections.value = new Set([...checkedConnections.value].filter(id => newTree.some(row => row.conn.id === id)))
   } catch (e) {
     console.error('Failed to load tree:', e)
   }
@@ -105,10 +172,12 @@ function selectConnection(tc: TreeConnection) {
 }
 
 function selectSlave(tc: TreeConnection, td: TreeDevice) {
+  selectedConnectionState.value = tc.conn.state
   emit('slave-select', tc.conn.id, td.device.slave_id)
 }
 
 function selectGroup(tc: TreeConnection, td: TreeDevice, regType: string) {
+  selectedConnectionState.value = tc.conn.state
   emit('group-select', tc.conn.id, td.device.slave_id, regType)
 }
 
@@ -207,7 +276,11 @@ async function ctxDeleteSlave() {
 
 <template>
   <div class="connection-tree" @click="closeContextMenu">
-    <div class="tree-header">{{ t('tree.connections') }}</div>
+    <div class="tree-header"><span>{{ t('tree.connections') }}</span><button class="tree-action" :aria-pressed="batchMode" :disabled="batchBusy" @click="batchMode = !batchMode; checkedConnections = new Set()">{{ t('parity.batchMode') }}</button></div>
+    <div v-if="batchMode" class="tree-batch-actions">
+      <button class="tree-action" :disabled="batchBusy" @click="checkedConnections = new Set(treeData.map(row => row.conn.id))">{{ t('parity.selectAll') }}</button>
+      <button class="tree-action" :disabled="batchBusy || !checkedConnections.size" @click="deleteCheckedConnections">{{ t('common.delete') }} ({{ checkedConnections.size }})</button>
+    </div>
     <div v-if="treeData.length === 0" class="tree-empty">{{ t('tree.noConnection') }}</div>
 
     <div v-for="tc in treeData" :key="tc.conn.id" class="tree-node-group">
@@ -217,9 +290,16 @@ async function ctxDeleteSlave() {
         @click.stop="selectConnection(tc)"
         @contextmenu.prevent="showContextMenuForConnection($event, tc)"
       >
+        <input v-if="batchMode" type="checkbox" :checked="checkedConnections.has(tc.conn.id)" :disabled="batchBusy" :aria-label="`${tc.conn.bind_address}:${tc.conn.port}`" @click.stop @change="toggleChecked(tc.conn.id)" />
         <span class="node-arrow" @click.stop="toggleConnection(tc)">{{ tc.expanded ? '▼' : '▶' }}</span>
         <span :class="['node-status', tc.conn.state === 'Running' ? 'running' : 'stopped']"></span>
         <span class="node-label">{{ tc.conn.bind_address }}:{{ tc.conn.port }}</span>
+        <button v-if="tc.conn.clients != null" class="clients-badge"
+          :class="{ active: !clientsError && tc.conn.clients.length > 0 }"
+          :title="t('clients.title')" :aria-label="t('clients.title') + ': ' + (clientsError ? t('clients.unavailable') : t('clients.count', { n: tc.conn.clients.length }))"
+          @click.stop="clientsConnectionId = tc.conn.id">
+          {{ clientsError ? '—' : t('clients.count', { n: tc.conn.clients.length }) }}
+        </button>
       </div>
 
       <!-- Slave Nodes -->
@@ -244,7 +324,7 @@ async function ctxDeleteSlave() {
               :class="['tree-node group-node', { selected: tc.conn.id === selectedConnectionId && td.device.slave_id === selectedSlaveId && selectedRegisterType === group.type }]"
               @click.stop="selectGroup(tc, td, group.type)"
             >
-              <span class="node-label">{{ group.label }}</span>
+              <span class="node-label" :title="`${group.fc} ${t(group.labelKey)}`">{{ group.fc }} {{ t(group.labelKey) }}</span>
               <span class="help-icon" @mouseenter="showHelpTooltip($event, group.type)" @mouseleave="hideHelpTooltip">?</span>
             </div>
           </template>
@@ -278,6 +358,11 @@ async function ctxDeleteSlave() {
       </template>
     </div>
 
+    <ClientConnectionsModal v-if="clientsConnection && clientsConnection.clients != null"
+      :label="`${clientsConnection.bind_address}:${clientsConnection.port}`"
+      :clients="clientsConnection.clients" :error="clientsError"
+      @close="clientsConnectionId = null" />
+
     <EditSlaveDialog
       :show="editSlave.show"
       :connection-id="editSlave.connectionId"
@@ -301,6 +386,16 @@ async function ctxDeleteSlave() {
 </template>
 
 <style scoped>
+.tree-header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.tree-action { padding: 3px 5px; border: 1px solid var(--c-surface1); border-radius: 4px; background: transparent; color: var(--c-subtext1); font-size: 11px; cursor: pointer; }
+.tree-action:hover { background: var(--c-surface0); }
+.tree-batch-actions { display: flex; gap: 6px; padding: 4px 8px; }
+
+.clients-badge { flex-shrink: 0; margin-left: auto; padding: 3px 6px; border: 1px solid var(--c-surface2); border-radius: 4px; background: var(--c-surface0); color: var(--c-text); font: inherit; font-size: 12px; cursor: pointer; }
+.clients-badge.active { color: var(--c-green); border-color: var(--c-green); }
+.clients-badge:hover { background: var(--c-surface1); }
+.clients-badge:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
+
 .connection-tree {
   padding: 0;
   font-size: 13px;
@@ -313,13 +408,13 @@ async function ctxDeleteSlave() {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-overlay0);
   letter-spacing: 0.5px;
 }
 
 .tree-empty {
   padding: 16px 12px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
 }
 
@@ -334,12 +429,12 @@ async function ctxDeleteSlave() {
 }
 
 .tree-node:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .tree-node.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .tree-child {
@@ -357,8 +452,8 @@ async function ctxDeleteSlave() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #45475a;
-  color: #a6adc8;
+  background: var(--c-surface1);
+  color: var(--c-subtext0);
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
@@ -367,21 +462,21 @@ async function ctxDeleteSlave() {
 }
 
 .help-icon:hover {
-  background: #585b70;
-  color: #cdd6f4;
+  background: var(--c-surface2);
+  color: var(--c-text);
 }
 
 .tree-node.selected .help-icon {
   background: rgba(0, 0, 0, 0.2);
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 :global(.help-tooltip) {
   position: fixed;
   z-index: 10000;
-  background: #313244;
-  color: #cdd6f4;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  color: var(--c-text);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 11px;
@@ -396,11 +491,11 @@ async function ctxDeleteSlave() {
   width: 12px;
   text-align: center;
   flex-shrink: 0;
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .tree-node.selected .node-arrow {
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .node-status {
@@ -411,11 +506,11 @@ async function ctxDeleteSlave() {
 }
 
 .node-status.running {
-  background: #a6e3a1;
+  background: var(--c-green);
 }
 
 .node-status.stopped {
-  background: #f38ba8;
+  background: var(--c-red);
 }
 
 .node-label {
@@ -427,8 +522,8 @@ async function ctxDeleteSlave() {
 /* Context Menu */
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   z-index: 999;
   min-width: 140px;
@@ -438,7 +533,7 @@ async function ctxDeleteSlave() {
 .context-menu-item {
   padding: 8px 14px;
   font-size: 13px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
 }
 
@@ -451,11 +546,11 @@ async function ctxDeleteSlave() {
 }
 
 .context-menu-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .context-menu-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .context-menu-item.danger:hover {

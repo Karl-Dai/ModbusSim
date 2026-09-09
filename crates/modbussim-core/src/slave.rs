@@ -1,3 +1,4 @@
+use crate::clients::{ClientGuard, ConnectedClients};
 use crate::log_collector::LogCollector;
 use crate::log_entry::{Direction, FunctionCode, LogEntry};
 use crate::register::{RegisterDef, RegisterMap, RegisterType};
@@ -10,7 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, RwLock};
-use tokio_modbus::server::tcp::{accept_tcp_connection, Server};
+use tokio_modbus::server::tcp::Server;
 use tokio_modbus::server::Service;
 use tokio_modbus::{ExceptionCode, Request, Response, SlaveRequest};
 
@@ -214,6 +215,7 @@ pub type SharedChangeCallback = Option<RegisterChangeCallback>;
 pub struct SlaveConnection {
     pub transport: Transport,
     pub tls_config: SlaveTlsConfig,
+    pub clients: ConnectedClients,
     pub devices: SharedDevices,
     pub log_collector: SharedLogCollector,
     pub change_callback: SharedChangeCallback,
@@ -227,6 +229,7 @@ impl SlaveConnection {
         Self {
             transport,
             tls_config: SlaveTlsConfig::default(),
+            clients: ConnectedClients::default(),
             devices: Arc::new(RwLock::new(HashMap::new())),
             log_collector: None,
             change_callback: None,
@@ -289,11 +292,15 @@ impl SlaveConnection {
         let log_collector = self.log_collector.clone();
         let change_callback = self.change_callback.clone();
 
+        self.clients = ConnectedClients::default();
+        let clients = self.clients.clone();
         let handle = match &self.transport {
             Transport::Tcp { host, port } => {
-                let addr: SocketAddr = format!("{}:{}", host, port)
-                    .parse()
-                    .map_err(|e| SlaveError::BindError(format!("Invalid address: {e}")))?;
+                let addr = SocketAddr::new(
+                    host.parse()
+                        .map_err(|e| SlaveError::BindError(format!("Invalid address: {e}")))?,
+                    *port,
+                );
 
                 let listener = TcpListener::bind(addr)
                     .await
@@ -305,18 +312,20 @@ impl SlaveConnection {
                         let devices = devices.clone();
                         let log_collector = log_collector.clone();
                         let change_callback = change_callback.clone();
-                        move |stream, socket_addr| {
+                        move |stream: tokio::net::TcpStream, _socket_addr| {
                             let devices = devices.clone();
                             let log_collector = log_collector.clone();
                             let change_callback = change_callback.clone();
-                            let new_service = move |_socket_addr| {
-                                Ok(Some(SlaveService::new(
-                                    devices.clone(),
-                                    log_collector.clone(),
-                                    change_callback.clone(),
-                                )))
-                            };
-                            async move { accept_tcp_connection(stream, socket_addr, new_service) }
+                            let clients = clients.clone();
+                            async move {
+                                let stream = stream.into_std()?;
+                                let guard = clients.track(&stream)?;
+                                let stream = tokio::net::TcpStream::from_std(stream)?;
+                                let mut service =
+                                    SlaveService::new(devices, log_collector, change_callback);
+                                service._client_guard = Some(guard);
+                                Ok::<_, std::io::Error>(Some((service, stream)))
+                            }
                         }
                     };
                     let on_process_error = |err| {
@@ -372,6 +381,7 @@ impl SlaveConnection {
                         devices,
                         log_collector,
                         change_callback,
+                        clients,
                         shutdown_rx,
                     )
                     .await
@@ -381,9 +391,11 @@ impl SlaveConnection {
                 })
             }
             Transport::TcpTls { host, port } => {
-                let addr: SocketAddr = format!("{}:{}", host, port)
-                    .parse()
-                    .map_err(|e| SlaveError::BindError(format!("Invalid address: {e}")))?;
+                let addr = SocketAddr::new(
+                    host.parse()
+                        .map_err(|e| SlaveError::BindError(format!("Invalid address: {e}")))?,
+                    *port,
+                );
                 let tls_config = self.tls_config.clone();
                 tokio::spawn(async move {
                     if let Err(e) = crate::tls_slave::run_tls_slave(
@@ -392,6 +404,7 @@ impl SlaveConnection {
                         devices,
                         log_collector,
                         change_callback,
+                        clients,
                         shutdown_rx,
                     )
                     .await
@@ -420,6 +433,7 @@ impl SlaveConnection {
         if let Some(handle) = self.server_handle.take() {
             let _ = handle.await;
         }
+        self.clients.close_all();
         self.state = ConnectionState::Stopped;
         Ok(())
     }
@@ -481,6 +495,7 @@ pub fn changes_from_tokio_request(slave_id: u8, req: &Request<'_>) -> Vec<Regist
 }
 
 struct SlaveService {
+    _client_guard: Option<ClientGuard>,
     devices: SharedDevices,
     log_collector: SharedLogCollector,
     change_callback: SharedChangeCallback,
@@ -493,6 +508,7 @@ impl SlaveService {
         change_callback: SharedChangeCallback,
     ) -> Self {
         Self {
+            _client_guard: None,
             devices,
             log_collector,
             change_callback,

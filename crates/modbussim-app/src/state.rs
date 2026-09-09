@@ -135,6 +135,7 @@ pub struct SlaveConnectionInfo {
     pub port: u16,
     pub state: String,
     pub device_count: usize,
+    pub clients: Option<Vec<modbussim_core::clients::ClientInfo>>,
 }
 
 /// Information about a slave device.

@@ -226,6 +226,10 @@ pub async fn create_slave_connection(
         port,
         state: format!("{:?}", connection.state()),
         device_count: 1,
+        clients: match &connection.transport {
+            Transport::Rtu(_) | Transport::Ascii(_) => None,
+            _ => Some(Vec::new()),
+        },
     };
 
     state.slave_connections.write().await.insert(
@@ -381,6 +385,10 @@ pub async fn list_slave_connections(
             port,
             state: format!("{:?}", conn_state.connection.state()),
             device_count,
+            clients: match &conn_state.connection.transport {
+                Transport::Rtu(_) | Transport::Ascii(_) => None,
+                _ => Some(conn_state.connection.clients.list()),
+            },
         });
     }
 
@@ -1015,12 +1023,46 @@ pub async fn export_registers(
         .map_err(|e| format!("failed to serialize: {}", e))
 }
 
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum RegisterImportMode {
+    #[default]
+    Append,
+    Replace,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct ImportRegistersRequest {
     pub connection_id: String,
     pub slave_id: u8,
     pub registers: Vec<RegisterDef>,
+    #[serde(default)]
+    pub mode: RegisterImportMode,
+}
+
+fn apply_register_import(
+    device: &mut SlaveDevice,
+    registers: Vec<RegisterDef>,
+    mode: &RegisterImportMode,
+) -> Result<usize, String> {
+    let count = registers.len();
+    let mut prospective = if *mode == RegisterImportMode::Replace {
+        Vec::new()
+    } else {
+        device.register_defs.clone()
+    };
+    prospective.extend(registers.iter().cloned());
+    validate_register_definition_set(&prospective)?;
+    if *mode == RegisterImportMode::Replace {
+        device.register_map = Default::default();
+        device.register_defs.clear();
+    }
+    for reg in registers {
+        device.register_map.ensure_from_def(&reg);
+        device.register_defs.push(reg);
+    }
+    Ok(count)
 }
 
 #[tauri::command]
@@ -1033,18 +1075,26 @@ pub async fn import_registers(
         .get(&request.connection_id)
         .ok_or_else(|| format!("connection {} not found", request.connection_id))?;
 
+    if request.mode == RegisterImportMode::Replace
+        && conn.connection.state() != modbussim_core::slave::ConnectionState::Stopped
+    {
+        return Err("Stop the connection before replacing register definitions".into());
+    }
     let mut devices = conn.connection.devices.write().await;
     let device = devices
         .get_mut(&request.slave_id)
         .ok_or_else(|| format!("slave {} not found", request.slave_id))?;
 
-    let count = request.registers.len();
-    let mut prospective = device.register_defs.clone();
-    prospective.extend(request.registers.iter().cloned());
-    validate_register_definition_set(&prospective)?;
-    for reg in request.registers {
-        device.register_map.ensure_from_def(&reg);
-        device.register_defs.push(reg);
+    let count = apply_register_import(device, request.registers, &request.mode)?;
+    drop(devices);
+    drop(connections);
+    if request.mode == RegisterImportMode::Replace {
+        state.mutation_runtime.write().await.retain(|key, _| {
+            key.connection_id != request.connection_id || key.slave_id != request.slave_id
+        });
+        state.data_sources.write().await.retain(|key, _| {
+            key.connection_id != request.connection_id || key.slave_id != request.slave_id
+        });
     }
 
     Ok(count)
@@ -1630,6 +1680,7 @@ pub async fn save_project_file(state: State<'_, AppState>, path: String) -> Resu
             scan_groups: vec![],
             default_slave_id: 1,
             timeout_ms: 3000,
+            requests: Default::default(),
             reconnect_policy: Default::default(),
             socks5: Default::default(),
         };
@@ -2040,6 +2091,36 @@ mod tests {
     use modbussim_core::register::DataType;
 
     #[test]
+    fn csv_import_validation_is_atomic_and_replace_clears_old_values() {
+        let reg: RegisterDef = serde_json::from_value(serde_json::json!({
+            "register_type": "holding_register", "address": 10, "data_type": "uint16"
+        }))
+        .unwrap();
+        let mut device = SlaveDevice::new(1, "CSV test");
+        apply_register_import(&mut device, vec![reg.clone()], &RegisterImportMode::Append).unwrap();
+        device.register_map.write_holding_register(10, 42);
+        assert!(
+            apply_register_import(&mut device, vec![reg.clone()], &RegisterImportMode::Append)
+                .is_err()
+        );
+        assert_eq!(device.register_defs.len(), 1);
+        assert_eq!(device.register_map.read_holding_registers(10, 1), vec![42]);
+        let mut replacement = reg.clone();
+        replacement.address = 20;
+        assert!(apply_register_import(
+            &mut device,
+            vec![replacement.clone(), replacement.clone()],
+            &RegisterImportMode::Replace
+        )
+        .is_err());
+        assert_eq!(device.register_map.read_holding_registers(10, 1), vec![42]);
+        apply_register_import(&mut device, vec![replacement], &RegisterImportMode::Replace)
+            .unwrap();
+        assert!(!device.register_map.has_holding_register(10));
+        assert_eq!(device.register_defs[0].address, 20);
+    }
+
+    #[test]
     fn bit_mutation_ignores_numeric_fields_and_normalizes_mode() {
         let mut config = MutationConfig {
             enabled: true,
@@ -2116,4 +2197,9 @@ mod tests {
         values.apply_to_existing(&mut map);
         assert_eq!(map.read_holding_registers(10, 2), vec![12, 34]);
     }
+}
+
+#[tauri::command]
+pub fn save_text_export(path: String, content: String) -> Result<(), String> {
+    std::fs::write(path, content).map_err(|error| error.to_string())
 }

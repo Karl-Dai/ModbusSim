@@ -1,0 +1,31 @@
+/* Shared modal-dialog open/close transition.
+   Apply with <Transition name="dialog-pop"> wrapping a backdrop element whose
+   single direct child is the dialog box — `> *` then targets that box, so one
+   definition fits every dialog regardless of its inner class names.
+   The backdrop element should also carry the `dialog-blur` class so the page
+   behind it frosts while the dialog is open. */
+
+.dialog-pop-enter-active { transition: opacity 200ms ease-out; }
+.dialog-pop-leave-active { transition: opacity 110ms ease-in; }
+/* Enter uses a back-easing curve so the box overshoots ~1.02 then settles. */
+.dialog-pop-enter-active > * { transition: transform 260ms cubic-bezier(.34, 1.56, .64, 1), opacity 200ms ease-out; }
+.dialog-pop-leave-active > * { transition: transform 110ms ease-in, opacity 110ms ease-in; }
+
+.dialog-pop-enter-from,
+.dialog-pop-leave-to { opacity: 0; }
+.dialog-pop-enter-from > * { transform: scale(0.9); opacity: 0; }
+.dialog-pop-leave-to > * { transform: scale(0.96); opacity: 0; }
+
+/* Backdrop blur — the dimmed overlay also frosts the page behind it.
+   Static (not animated) so it simply fades in with the overlay's opacity. */
+.dialog-blur {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-pop-enter-active,
+  .dialog-pop-leave-active,
+  .dialog-pop-enter-active > *,
+  .dialog-pop-leave-active > * { transition: none; }
+}

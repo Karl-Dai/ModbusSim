@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n, showAlert, useFcLabel } from 'shared-frontend'
@@ -121,13 +122,6 @@ watch(
 )
 onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
 
-/** Notify the toolbar master switch that the mutation engine is running. */
-function notifyMutationRunning(running: boolean) {
-  window.dispatchEvent(
-    new CustomEvent('modbussim:mutation-running', { detail: { running } }),
-  )
-}
-
 async function applyToSelection() {
   if (actionPending.value || props.selectedRegs.length === 0) return
   if (!Number.isFinite(period.value) || period.value < 100 || period.value > 60000) {
@@ -178,10 +172,8 @@ async function applyToSelection() {
         },
       })
     }
-    // Applying a mutation makes it run immediately — start the engine and
-    // keep the toolbar master switch in sync.
+    // Applying a point configuration starts its mutation immediately.
     await invoke('set_mutation_running', { running: true })
-    notifyMutationRunning(true)
     emit('changed')
   } catch (error) {
     await showAlert(t('errors.operationFailed', { err: String(error) }))
@@ -236,6 +228,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
     <Transition name="sim-drawer">
       <div
         v-if="show"
+        v-modal="close"
         class="sim-drawer-backdrop"
         @mousedown="handleBackdrop"
       >
@@ -412,9 +405,9 @@ function pointTitle(reg: { register_type: string; address: number }) {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  color: #cdd6f4;
-  background: #181825;
-  border-left: 1px solid #313244;
+  color: var(--c-text);
+  background: var(--c-mantle);
+  border-left: 1px solid var(--c-surface0);
   box-shadow: -16px 0 32px -8px rgba(0, 0, 0, 0.45);
 }
 
@@ -424,13 +417,13 @@ function pointTitle(reg: { register_type: string; address: number }) {
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .sim-eyebrow {
   display: block;
   margin-bottom: 4px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font: 600 9.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
   letter-spacing: 0.16em;
 }
@@ -438,7 +431,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
 .sim-drawer-head h3,
 .sim-section h4 {
   margin: 0;
-  color: #cdd6f4;
+  color: var(--c-text);
 }
 
 .sim-drawer-head h3 {
@@ -448,7 +441,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
 .sim-close {
   width: 28px;
   height: 28px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   background: transparent;
   border: 0;
   border-radius: 4px;
@@ -457,8 +450,8 @@ function pointTitle(reg: { register_type: string; address: number }) {
 }
 
 .sim-close:hover:not(:disabled) {
-  color: #cdd6f4;
-  background: #313244;
+  color: var(--c-text);
+  background: var(--c-surface0);
 }
 
 .sim-drawer-body {
@@ -471,8 +464,8 @@ function pointTitle(reg: { register_type: string; address: number }) {
 .sim-section {
   margin-bottom: 14px;
   padding: 14px;
-  background: #1e1e2e;
-  border: 1px solid #313244;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface0);
   border-radius: 7px;
 }
 
@@ -489,8 +482,8 @@ function pointTitle(reg: { register_type: string; address: number }) {
 .sim-section-title > span {
   min-width: 22px;
   padding: 2px 6px;
-  color: #a6adc8;
-  background: #313244;
+  color: var(--c-subtext0);
+  background: var(--c-surface0);
   border-radius: 10px;
   font: 600 10px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
   text-align: center;
@@ -501,17 +494,17 @@ function pointTitle(reg: { register_type: string; address: number }) {
 .sim-hint {
   margin: 12px 0 0;
   padding: 9px 10px;
-  color: #a6adc8;
-  background: #181825;
-  border-left: 2px solid #45475a;
+  color: var(--c-subtext0);
+  background: var(--c-mantle);
+  border-left: 2px solid var(--c-surface1);
   border-radius: 3px;
   font-size: 11px;
   line-height: 1.45;
 }
 
 .sim-warning {
-  color: #f9e2af;
-  border-left-color: #f9e2af;
+  color: var(--c-yellow);
+  border-left-color: var(--c-yellow);
 }
 
 .sim-hint {
@@ -530,8 +523,8 @@ function pointTitle(reg: { register_type: string; address: number }) {
   max-width: 100%;
   padding: 3px 6px;
   overflow: hidden;
-  color: #a6adc8;
-  background: #313244;
+  color: var(--c-subtext0);
+  background: var(--c-surface0);
   border-radius: 4px;
   font: 500 10px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
   text-overflow: ellipsis;
@@ -550,7 +543,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  color: #a6adc8;
+  color: var(--c-subtext0);
   font-size: 11px;
 }
 
@@ -563,16 +556,16 @@ function pointTitle(reg: { register_type: string; address: number }) {
   height: 30px;
   box-sizing: border-box;
   padding: 0 8px;
-  color: #cdd6f4;
-  background: #11111b;
-  border: 1px solid #45475a;
+  color: var(--c-text);
+  background: var(--c-crust);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
   font: 500 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
   outline: none;
 }
 
 .sim-form input:focus {
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .sim-input-unit {
@@ -587,7 +580,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
   position: absolute;
   top: 8px;
   right: 8px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font: 500 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
 }
 
@@ -599,17 +592,17 @@ function pointTitle(reg: { register_type: string; address: number }) {
 
 .sim-mode-buttons button {
   height: 30px;
-  color: #a6adc8;
-  background: #11111b;
-  border: 1px solid #45475a;
+  color: var(--c-subtext0);
+  background: var(--c-crust);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
   cursor: pointer;
 }
 
 .sim-mode-buttons button.active {
-  color: #1e1e2e;
-  background: #89b4fa;
-  border-color: #89b4fa;
+  color: var(--c-base);
+  background: var(--c-blue);
+  border-color: var(--c-blue);
   font-weight: 600;
 }
 
@@ -635,15 +628,15 @@ function pointTitle(reg: { register_type: string; address: number }) {
 }
 
 .sim-btn-primary {
-  color: #1e1e2e;
-  background: #89b4fa;
-  border-color: #89b4fa;
+  color: var(--c-base);
+  background: var(--c-blue);
+  border-color: var(--c-blue);
 }
 
 .sim-btn-danger {
-  color: #f38ba8;
+  color: var(--c-red);
   background: transparent;
-  border-color: #f38ba8;
+  border-color: var(--c-red);
 }
 
 .sim-active-list {
@@ -655,8 +648,8 @@ function pointTitle(reg: { register_type: string; address: number }) {
 
 .sim-active-card {
   padding: 10px;
-  background: #181825;
-  border: 1px solid #313244;
+  background: var(--c-mantle);
+  border: 1px solid var(--c-surface0);
   border-radius: 5px;
 }
 
@@ -674,7 +667,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
 
 .sim-row-stop {
   padding: 3px 7px;
-  color: #f38ba8;
+  color: var(--c-red);
   background: transparent;
   border: 1px solid rgba(243, 139, 168, 0.55);
   border-radius: 4px;
@@ -694,21 +687,21 @@ function pointTitle(reg: { register_type: string; address: number }) {
 }
 
 .sim-active-card dt {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 9.5px;
 }
 
 .sim-active-card dd {
   margin: 2px 0 0;
   overflow: hidden;
-  color: #a6adc8;
+  color: var(--c-subtext0);
   font: 500 11px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .sim-active-card .sim-current-value {
-  color: #a6e3a1;
+  color: var(--c-green);
   font-weight: 700;
 }
 

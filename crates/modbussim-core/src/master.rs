@@ -2,6 +2,7 @@ use crate::ascii_master::AsciiMasterTransport;
 use crate::log_collector::LogCollector;
 use crate::log_entry::{Direction, FunctionCode, LogEntry};
 use crate::reconnect::ReconnectPolicy;
+use crate::request::{RequestPacer, RequestSettings};
 use crate::rtu_master::RtuMasterTransport;
 use crate::rtu_tcp_master::RtuTcpMasterTransport;
 use crate::socks5::{connect_tcp, Socks5Config, TcpConnectError};
@@ -24,6 +25,8 @@ pub struct MasterConfig {
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
     #[serde(default)]
+    pub requests: RequestSettings,
+    #[serde(default)]
     pub tls: TlsConfig,
     #[serde(default)]
     pub socks5: Socks5Config,
@@ -40,6 +43,7 @@ impl Default for MasterConfig {
             port: 502,
             slave_id: 1,
             timeout_ms: default_timeout_ms(),
+            requests: RequestSettings::default(),
             tls: TlsConfig::default(),
             socks5: Socks5Config::default(),
         }
@@ -111,6 +115,41 @@ pub struct ScanGroup {
     pub slave_id: Option<u8>,
 }
 
+impl ScanGroup {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_read_range(self.start_address, self.quantity)?;
+        if self.interval_ms == 0 {
+            return Err("poll interval must be greater than zero".into());
+        }
+        if self.slave_id.is_some_and(|id| !(1..=247).contains(&id)) {
+            return Err("slave ID must be between 1 and 247".into());
+        }
+        Ok(())
+    }
+}
+
+fn validate_read_range(start_address: u16, quantity: u16) -> Result<(), String> {
+    if quantity == 0 || u32::from(start_address) + u32::from(quantity) > 65_536 {
+        return Err("read range must contain 1..65535 addresses and end at or before 65535".into());
+    }
+    Ok(())
+}
+
+// A dropped sender has historically meant "no cancellation" for the public scanners.
+// Never poll a oneshot again after try_recv reports Closed.
+async fn cancellation_signal(receiver: &mut oneshot::Receiver<()>) {
+    match receiver.try_recv() {
+        Ok(()) => return,
+        Err(oneshot::error::TryRecvError::Empty) => {
+            if receiver.await.is_ok() {
+                return;
+            }
+        }
+        Err(oneshot::error::TryRecvError::Closed) => {}
+    }
+    std::future::pending::<()>().await;
+}
+
 /// Handle for a running poll task.
 struct PollTaskHandle {
     shutdown_tx: oneshot::Sender<()>,
@@ -141,6 +180,7 @@ pub struct MasterConnection {
     /// failures from poll tasks). Capacity is small because subscribers
     /// only need a wakeup, not the full history.
     connection_lost_tx: broadcast::Sender<()>,
+    request_pacer: RequestPacer,
 }
 
 /// How many consecutive transport-level failures a poll task tolerates
@@ -150,6 +190,7 @@ const TRANSPORT_LOST_STREAK: u32 = 3;
 impl MasterConnection {
     pub fn new(config: MasterConfig, transport: Transport) -> Self {
         let (connection_lost_tx, _) = broadcast::channel(4);
+        let request_pacer = RequestPacer::new(Duration::from_millis(config.requests.interval_ms));
         Self {
             config,
             transport,
@@ -159,6 +200,7 @@ impl MasterConnection {
             poll_tasks: HashMap::new(),
             log_collector: None,
             connection_lost_tx,
+            request_pacer,
         }
     }
 
@@ -182,6 +224,10 @@ impl MasterConnection {
 
     /// Connect to the target Modbus slave using the configured transport.
     pub async fn connect(&mut self) -> Result<(), MasterError> {
+        self.config
+            .requests
+            .validate()
+            .map_err(MasterError::InvalidConfig)?;
         if self.state == MasterState::Connected {
             return Err(MasterError::AlreadyConnected);
         }
@@ -275,6 +321,10 @@ impl MasterConnection {
         self.get_tcp_ctx()
     }
 
+    pub fn request_pacer(&self) -> RequestPacer {
+        self.request_pacer.clone()
+    }
+
     fn timeout_duration(&self) -> Duration {
         Duration::from_millis(self.config.timeout_ms)
     }
@@ -295,13 +345,6 @@ impl MasterConnection {
         }
     }
 
-    async fn log_rx(&self, fc: FunctionCode, detail: &str) {
-        if let Some(collector) = &self.log_collector {
-            let entry = LogEntry::new(Direction::Rx, fc, detail);
-            collector.add(entry).await;
-        }
-    }
-
     /// Read registers using the specified function code.
     pub async fn read(
         &self,
@@ -310,39 +353,26 @@ impl MasterConnection {
         quantity: u16,
     ) -> Result<ReadResult, MasterError> {
         let transport_ctx = self.get_transport_ctx()?;
-        let timeout = self.timeout_duration();
-        let fc = Self::to_function_code(function);
-
-        // Log TX
-        self.log_tx(fc, &format!("R {} x{}", start_address, quantity))
-            .await;
-
-        let result = execute_read_any(
+        execute_read_batched(
             &transport_ctx,
+            &self.request_pacer,
+            &self.config.requests,
+            self.log_collector.as_ref(),
             self.config.slave_id,
             function,
             start_address,
             quantity,
-            timeout,
+            self.timeout_duration(),
+            None,
         )
-        .await?;
-
-        // Log RX with result data
-        let detail = match &result {
-            ReadResult::Coils(vals) => format!("{:?}", vals),
-            ReadResult::DiscreteInputs(vals) => format!("{:?}", vals),
-            ReadResult::HoldingRegisters(vals) => format!("{:?}", vals),
-            ReadResult::InputRegisters(vals) => format!("{:?}", vals),
-        };
-        self.log_rx(fc, &detail).await;
-
-        Ok(result)
+        .await
     }
 
     /// Write a single coil (FC05).
     pub async fn write_single_coil(&self, address: u16, value: bool) -> Result<(), MasterError> {
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
+        let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteSingleCoil,
             &format!("W {} = {}", address, value),
@@ -351,6 +381,7 @@ impl MasterConnection {
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
+                ctx.set_slave(Slave(self.config.slave_id));
                 tokio::time::timeout(timeout, ctx.write_single_coil(address, value))
                     .await
                     .map_err(|_| MasterError::Timeout("Write single coil timed out".into()))?
@@ -378,6 +409,7 @@ impl MasterConnection {
     pub async fn write_single_register(&self, address: u16, value: u16) -> Result<(), MasterError> {
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
+        let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteSingleRegister,
             &format!("W {} = {:#06x}", address, value),
@@ -386,6 +418,7 @@ impl MasterConnection {
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
+                ctx.set_slave(Slave(self.config.slave_id));
                 tokio::time::timeout(timeout, ctx.write_single_register(address, value))
                     .await
                     .map_err(|_| MasterError::Timeout("Write single register timed out".into()))?
@@ -416,6 +449,7 @@ impl MasterConnection {
     ) -> Result<(), MasterError> {
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
+        let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteMultipleCoils,
             &format!("W {} x{}", address, values.len()),
@@ -424,6 +458,7 @@ impl MasterConnection {
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
+                ctx.set_slave(Slave(self.config.slave_id));
                 tokio::time::timeout(timeout, ctx.write_multiple_coils(address, values))
                     .await
                     .map_err(|_| MasterError::Timeout("Write multiple coils timed out".into()))?
@@ -464,6 +499,7 @@ impl MasterConnection {
     ) -> Result<(), MasterError> {
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
+        let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteMultipleRegisters,
             &format!("W {} x{}", address, values.len()),
@@ -472,6 +508,7 @@ impl MasterConnection {
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
+                ctx.set_slave(Slave(self.config.slave_id));
                 tokio::time::timeout(timeout, ctx.write_multiple_registers(address, values))
                     .await
                     .map_err(|_| MasterError::Timeout("Write multiple registers timed out".into()))?
@@ -540,6 +577,11 @@ impl MasterConnection {
         &mut self,
         group: &ScanGroup,
     ) -> Result<mpsc::Receiver<PollEvent>, MasterError> {
+        group.validate().map_err(MasterError::InvalidConfig)?;
+        self.config
+            .requests
+            .validate()
+            .map_err(MasterError::InvalidConfig)?;
         // Stop existing poll for this group if any
         self.stop_scan_group(&group.id).await.ok();
 
@@ -552,18 +594,14 @@ impl MasterConnection {
         let quantity = group.quantity;
         let interval_ms = group.interval_ms;
         let log_collector = self.log_collector.clone();
+        let requests = self.config.requests.clone();
+        let request_pacer = self.request_pacer.clone();
         let group_slave_id = group.slave_id;
         let default_slave_id = self.config.slave_id;
         let connection_lost_tx = self.connection_lost_tx.clone();
 
         let handle = tokio::spawn(async move {
             let interval = Duration::from_millis(interval_ms);
-            let fc = match function {
-                ReadFunction::ReadCoils => FunctionCode::ReadCoils,
-                ReadFunction::ReadDiscreteInputs => FunctionCode::ReadDiscreteInputs,
-                ReadFunction::ReadHoldingRegisters => FunctionCode::ReadHoldingRegisters,
-                ReadFunction::ReadInputRegisters => FunctionCode::ReadInputRegisters,
-            };
             let slave_id = group_slave_id.unwrap_or(default_slave_id);
             let mut transport_err_streak: u32 = 0;
             loop {
@@ -572,46 +610,21 @@ impl MasterConnection {
                     break;
                 }
 
-                // Log TX
-                if let Some(ref collector) = log_collector {
-                    let entry = LogEntry::new(
-                        Direction::Tx,
-                        fc,
-                        format!("R {} x{}", start_address, quantity),
-                    );
-                    collector.add(entry).await;
-                }
-
-                let result = {
-                    // For TCP with slave_id override, set it before reading
-                    if let TransportCtx::Tcp(ref ctx) = transport_ctx {
-                        if group_slave_id.is_some() {
-                            let mut ctx = ctx.lock().await;
-                            ctx.set_slave(Slave(slave_id));
-                        }
-                    }
-                    execute_read_any(
-                        &transport_ctx,
-                        slave_id,
-                        function,
-                        start_address,
-                        quantity,
-                        timeout,
-                    )
-                    .await
-                };
-
-                // Log RX
-                if let Some(ref collector) = log_collector {
-                    let detail = match &result {
-                        Ok(ReadResult::Coils(v)) => format!("{} coils", v.len()),
-                        Ok(ReadResult::DiscreteInputs(v)) => format!("{} inputs", v.len()),
-                        Ok(ReadResult::HoldingRegisters(v)) => format!("{} regs", v.len()),
-                        Ok(ReadResult::InputRegisters(v)) => format!("{} regs", v.len()),
-                        Err(e) => format!("ERR: {}", e),
-                    };
-                    let entry = LogEntry::new(Direction::Rx, fc, detail);
-                    collector.add(entry).await;
+                let result = execute_read_batched(
+                    &transport_ctx,
+                    &request_pacer,
+                    &requests,
+                    log_collector.as_ref(),
+                    slave_id,
+                    function,
+                    start_address,
+                    quantity,
+                    timeout,
+                    Some(&mut shutdown_rx),
+                )
+                .await;
+                if matches!(result, Err(MasterError::Cancelled)) {
+                    break;
                 }
 
                 // Decide whether the transport looks dead. Modbus exceptions
@@ -644,7 +657,10 @@ impl MasterConnection {
                     break;
                 }
 
-                tokio::time::sleep(interval).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(interval) => {}
+                    _ = cancellation_signal(&mut shutdown_rx) => break,
+                }
             }
         });
 
@@ -804,15 +820,111 @@ pub(crate) fn check_write_response(resp: &[u8], expected_fc: u8) -> Result<(), M
     Ok(())
 }
 
+/// Read a continuous range as bounded requests, returning one complete result in address order.
+#[allow(clippy::too_many_arguments)]
+async fn execute_read_batched(
+    ctx: &TransportCtx,
+    pacer: &RequestPacer,
+    settings: &RequestSettings,
+    collector: Option<&Arc<LogCollector>>,
+    slave_id: u8,
+    function: ReadFunction,
+    start_address: u16,
+    quantity: u16,
+    timeout: Duration,
+    mut cancel: Option<&mut oneshot::Receiver<()>>,
+) -> Result<ReadResult, MasterError> {
+    settings.validate().map_err(MasterError::InvalidConfig)?;
+    validate_read_range(start_address, quantity).map_err(MasterError::InvalidConfig)?;
+    let (limit, mut combined) = match function {
+        ReadFunction::ReadCoils => (settings.max_read_bits, ReadResult::Coils(Vec::new())),
+        ReadFunction::ReadDiscreteInputs => (
+            settings.max_read_bits,
+            ReadResult::DiscreteInputs(Vec::new()),
+        ),
+        ReadFunction::ReadHoldingRegisters => (
+            settings.max_read_registers,
+            ReadResult::HoldingRegisters(Vec::new()),
+        ),
+        ReadFunction::ReadInputRegisters => (
+            settings.max_read_registers,
+            ReadResult::InputRegisters(Vec::new()),
+        ),
+    };
+    let fc = MasterConnection::to_function_code(function);
+    let mut offset = 0u32;
+    while offset < u32::from(quantity) {
+        let count = limit.min((u32::from(quantity) - offset) as u16);
+        let address = (u32::from(start_address) + offset) as u16;
+        let mut part = {
+            // Cancellation can interrupt queue/gap waits, but an on-wire request is drained.
+            let _permit = if let Some(cancel) = cancel.as_mut() {
+                tokio::select! {
+                    biased;
+                    _ = cancellation_signal(cancel) => return Err(MasterError::Cancelled),
+                    permit = pacer.acquire() => permit,
+                }
+            } else {
+                pacer.acquire().await
+            };
+            if let Some(collector) = collector {
+                collector
+                    .add(LogEntry::new(
+                        Direction::Tx,
+                        fc,
+                        format!("R {address} x{count}"),
+                    ))
+                    .await;
+            }
+            let result = execute_read_any(ctx, slave_id, function, address, count, timeout).await;
+            if let Some(collector) = collector {
+                let detail = match &result {
+                    Ok(data) => format!("R {address} x{count}: {data:?}"),
+                    Err(error) => format!("R {address} x{count}: ERR: {error}"),
+                };
+                collector
+                    .add(LogEntry::new(Direction::Rx, fc, detail))
+                    .await;
+            }
+            result?
+        };
+        match (&mut combined, &mut part) {
+            (ReadResult::Coils(all), ReadResult::Coils(values))
+            | (ReadResult::DiscreteInputs(all), ReadResult::DiscreteInputs(values)) => {
+                if values.len() < usize::from(count) {
+                    return Err(MasterError::Transport("short bit response".into()));
+                }
+                // Serial/TLS responses may include byte-padding bits. Discard them per packet.
+                values.truncate(usize::from(count));
+                all.append(values);
+            }
+            (ReadResult::HoldingRegisters(all), ReadResult::HoldingRegisters(values))
+            | (ReadResult::InputRegisters(all), ReadResult::InputRegisters(values)) => {
+                if values.len() != usize::from(count) {
+                    return Err(MasterError::Transport(
+                        "register response length mismatch".into(),
+                    ));
+                }
+                all.append(values);
+            }
+            _ => return Err(MasterError::Transport("read response type mismatch".into())),
+        }
+        offset += u32::from(count);
+    }
+    Ok(combined)
+}
+
 /// Execute a read via TCP tokio_modbus context.
 async fn execute_read_tcp(
     ctx: &Arc<Mutex<client::Context>>,
+    slave_id: u8,
     function: ReadFunction,
     start_address: u16,
     quantity: u16,
     timeout: Duration,
 ) -> Result<ReadResult, MasterError> {
     let mut ctx = ctx.lock().await;
+    ctx.set_slave(Slave(slave_id));
     match function {
         ReadFunction::ReadCoils => {
             let data = tokio::time::timeout(timeout, ctx.read_coils(start_address, quantity))
@@ -863,7 +975,15 @@ async fn execute_read_any(
 ) -> Result<ReadResult, MasterError> {
     match ctx {
         TransportCtx::Tcp(tcp_ctx) => {
-            execute_read_tcp(tcp_ctx, function, start_address, quantity, timeout).await
+            execute_read_tcp(
+                tcp_ctx,
+                slave_id,
+                function,
+                start_address,
+                quantity,
+                timeout,
+            )
+            .await
         }
         TransportCtx::TcpTls(tls) => {
             tls.read(slave_id, function, start_address, quantity, timeout)
@@ -895,6 +1015,10 @@ pub fn exception_description(code: ExceptionCode) -> &'static str {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MasterError {
+    #[error("operation cancelled")]
+    Cancelled,
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
     #[error("already connected")]
     AlreadyConnected,
     #[error("not connected")]
@@ -948,29 +1072,51 @@ pub async fn scan_slave_ids_with_ctx(
     start_id: u8,
     end_id: u8,
     scan_timeout: Duration,
+    cancel_rx: oneshot::Receiver<()>,
+    progress_tx: mpsc::Sender<SlaveIdScanProgress>,
+) -> Vec<u8> {
+    scan_slave_ids_paced(
+        ctx,
+        original_slave_id,
+        start_id,
+        end_id,
+        scan_timeout,
+        RequestPacer::new(Duration::ZERO),
+        cancel_rx,
+        progress_tx,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn scan_slave_ids_paced(
+    ctx: Arc<Mutex<client::Context>>,
+    original_slave_id: u8,
+    start_id: u8,
+    end_id: u8,
+    scan_timeout: Duration,
+    pacer: RequestPacer,
     mut cancel_rx: oneshot::Receiver<()>,
     progress_tx: mpsc::Sender<SlaveIdScanProgress>,
 ) -> Vec<u8> {
     let mut found_ids: Vec<u8> = Vec::new();
+    let mut cancelled = false;
     let total = end_id.saturating_sub(start_id) as u16 + 1;
 
     for id in start_id..=end_id {
         // Check cancellation
         if cancel_rx.try_recv().is_ok() {
-            let _ = progress_tx
-                .send(SlaveIdScanProgress {
-                    current_id: id,
-                    total,
-                    found_ids: found_ids.clone(),
-                    done: false,
-                    cancelled: true,
-                })
-                .await;
+            cancelled = true;
             break;
         }
 
         // Probe this slave ID
         let found = {
+            let _permit = tokio::select! {
+                biased;
+                _ = cancellation_signal(&mut cancel_rx) => { cancelled = true; break; },
+                permit = pacer.acquire() => permit,
+            };
             let mut ctx = ctx.lock().await;
             ctx.set_slave(Slave(id));
             matches!(
@@ -1007,7 +1153,7 @@ pub async fn scan_slave_ids_with_ctx(
             total,
             found_ids: found_ids.clone(),
             done: true,
-            cancelled: false,
+            cancelled,
         })
         .await;
 
@@ -1023,34 +1169,68 @@ pub async fn scan_registers_with_ctx(
     end_address: u16,
     chunk_size: u16,
     scan_timeout: Duration,
+    cancel_rx: oneshot::Receiver<()>,
+    progress_tx: mpsc::Sender<RegisterScanProgress>,
+) -> Vec<FoundRegister> {
+    scan_registers_paced(
+        ctx,
+        None,
+        function,
+        start_address,
+        end_address,
+        chunk_size,
+        scan_timeout,
+        RequestPacer::new(Duration::ZERO),
+        cancel_rx,
+        progress_tx,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn scan_registers_paced(
+    ctx: Arc<Mutex<client::Context>>,
+    slave_id: Option<u8>,
+    function: ReadFunction,
+    start_address: u16,
+    end_address: u16,
+    chunk_size: u16,
+    scan_timeout: Duration,
+    pacer: RequestPacer,
     mut cancel_rx: oneshot::Receiver<()>,
     progress_tx: mpsc::Sender<RegisterScanProgress>,
 ) -> Vec<FoundRegister> {
     let mut found: Vec<FoundRegister> = Vec::new();
-    let mut addr = start_address;
+    let mut cancelled = false;
+    let mut addr = u32::from(start_address);
+    let max_chunk = match function {
+        ReadFunction::ReadCoils | ReadFunction::ReadDiscreteInputs => 2000,
+        _ => 125,
+    };
+    let chunk_size = chunk_size.clamp(1, max_chunk);
 
-    while addr <= end_address {
+    while addr <= u32::from(end_address) {
         // Check cancellation
         if cancel_rx.try_recv().is_ok() {
-            let _ = progress_tx
-                .send(RegisterScanProgress {
-                    current_address: addr,
-                    end_address,
-                    found_registers: found.clone(),
-                    done: false,
-                    cancelled: true,
-                })
-                .await;
+            cancelled = true;
             break;
         }
 
-        let qty = chunk_size.min(end_address - addr + 1);
+        let qty = u32::from(chunk_size).min(u32::from(end_address) - addr + 1) as u16;
 
         let result = {
+            let _permit = tokio::select! {
+                biased;
+                _ = cancellation_signal(&mut cancel_rx) => { cancelled = true; break; },
+                permit = pacer.acquire() => permit,
+            };
             let mut ctx = ctx.lock().await;
+            if let Some(id) = slave_id {
+                ctx.set_slave(Slave(id));
+            }
             let read_fut = match function {
                 ReadFunction::ReadCoils => {
-                    let f = ctx.read_coils(addr, qty);
+                    let f = ctx.read_coils(addr as u16, qty);
                     tokio::time::timeout(scan_timeout, f)
                         .await
                         .ok()
@@ -1063,7 +1243,7 @@ pub async fn scan_registers_with_ctx(
                         })
                 }
                 ReadFunction::ReadDiscreteInputs => {
-                    let f = ctx.read_discrete_inputs(addr, qty);
+                    let f = ctx.read_discrete_inputs(addr as u16, qty);
                     tokio::time::timeout(scan_timeout, f)
                         .await
                         .ok()
@@ -1076,7 +1256,7 @@ pub async fn scan_registers_with_ctx(
                         })
                 }
                 ReadFunction::ReadHoldingRegisters => {
-                    let f = ctx.read_holding_registers(addr, qty);
+                    let f = ctx.read_holding_registers(addr as u16, qty);
                     tokio::time::timeout(scan_timeout, f)
                         .await
                         .ok()
@@ -1084,7 +1264,7 @@ pub async fn scan_registers_with_ctx(
                         .and_then(|r| r.ok())
                 }
                 ReadFunction::ReadInputRegisters => {
-                    let f = ctx.read_input_registers(addr, qty);
+                    let f = ctx.read_input_registers(addr as u16, qty);
                     tokio::time::timeout(scan_timeout, f)
                         .await
                         .ok()
@@ -1096,18 +1276,18 @@ pub async fn scan_registers_with_ctx(
         };
 
         if let Some(values) = result {
-            for (i, &val) in values.iter().enumerate() {
+            for (i, &val) in values.iter().take(usize::from(qty)).enumerate() {
                 found.push(FoundRegister {
-                    address: addr + i as u16,
+                    address: (addr + i as u32) as u16,
                     value: val,
                 });
             }
         }
 
-        let done = addr + qty > end_address;
+        let done = addr + u32::from(qty) > u32::from(end_address);
         let _ = progress_tx
             .send(RegisterScanProgress {
-                current_address: addr + qty - 1,
+                current_address: (addr + u32::from(qty) - 1) as u16,
                 end_address,
                 found_registers: found.clone(),
                 done,
@@ -1115,12 +1295,23 @@ pub async fn scan_registers_with_ctx(
             })
             .await;
 
-        addr = addr.saturating_add(qty);
+        addr += u32::from(qty);
         if addr == 0 && end_address == u16::MAX {
             break; // overflow protection
         }
     }
 
+    if cancelled {
+        let _ = progress_tx
+            .send(RegisterScanProgress {
+                current_address: addr.min(u32::from(end_address)) as u16,
+                end_address,
+                found_registers: found.clone(),
+                done: false,
+                cancelled: true,
+            })
+            .await;
+    }
     found
 }
 

@@ -79,7 +79,7 @@ export function useRegisterValues(
         registerType: selectedRegisterType.value,
       })
       if (seq !== loadSeq) return
-      registers.value = defs
+      registers.value = defs.map(def => ({ ...def, data_type: def.data_type.replace(/^u_int/, 'uint') }))
 
       const types = Array.from(new Set(defs.map(d => d.register_type)))
       const values: Record<string, number> = {}
@@ -113,15 +113,19 @@ export function useRegisterValues(
   async function refreshValues() {
     if (!selectedConnectionId.value || selectedSlaveId.value === null) return
     if (registers.value.length === 0) return
+    const connId = selectedConnectionId.value
+    const slaveId = selectedSlaveId.value
+    const seq = loadSeq
     const types = Array.from(new Set(registers.value.map(r => r.register_type)))
     try {
       const results = await Promise.all(types.map(rt =>
         invoke<RowValue[]>('read_registers_bulk', {
-          connectionId: selectedConnectionId.value,
-          slaveId: selectedSlaveId.value,
+          connectionId: connId,
+          slaveId,
           registerType: rt,
         }).then(rows => ({ rt, rows }))
       ))
+      if (seq !== loadSeq || connId !== selectedConnectionId.value || slaveId !== selectedSlaveId.value) return
       for (const { rt, rows } of results) {
         for (const r of rows) {
           const k = `${rt}-${r.address}`

@@ -21,8 +21,10 @@ pub enum RegisterType {
 #[serde(rename_all = "snake_case")]
 pub enum DataType {
     Bool,
+    #[serde(alias = "uint16")]
     UInt16,
     Int16,
+    #[serde(alias = "uint32")]
     UInt32,
     Int32,
     Float32,

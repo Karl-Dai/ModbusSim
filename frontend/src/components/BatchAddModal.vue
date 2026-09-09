@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from 'shared-frontend'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useI18n, showAlert } from 'shared-frontend'
@@ -117,7 +118,7 @@ function handleBackdropClick(e: MouseEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-backdrop" @click="handleBackdropClick">
+    <div v-if="show" v-modal="() => emit('close')" class="modal-backdrop" @click="handleBackdropClick">
       <div class="modal">
         <div class="modal-header">
           <span class="modal-title">{{ t('batchAdd.title') }}</span>
@@ -206,8 +207,8 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .modal {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   width: 420px;
   max-width: 90vw;
@@ -220,19 +221,19 @@ function handleBackdropClick(e: MouseEvent) {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .modal-title {
   font-size: 16px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
 }
 
 .btn-close {
   background: none;
   border: none;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 20px;
   cursor: pointer;
   padding: 0 4px;
@@ -240,7 +241,7 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .btn-close:hover {
-  color: #cdd6f4;
+  color: var(--c-text);
 }
 
 .modal-body {
@@ -263,7 +264,7 @@ function handleBackdropClick(e: MouseEvent) {
 .form-label {
   display: block;
   font-size: 13px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   margin-bottom: 6px;
 }
 
@@ -271,10 +272,10 @@ function handleBackdropClick(e: MouseEvent) {
 .form-select {
   width: 100%;
   padding: 8px 12px;
-  background: #11111b;
-  border: 1px solid #45475a;
+  background: var(--c-crust);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 14px;
   box-sizing: border-box;
 }
@@ -282,25 +283,25 @@ function handleBackdropClick(e: MouseEvent) {
 .form-input:focus,
 .form-select:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .count-info {
   font-size: 13px;
-  color: #a6adc8;
+  color: var(--c-subtext0);
   padding: 8px 0;
 }
 
 .count-info strong {
-  color: #a6e3a1;
+  color: var(--c-green);
 }
 
 .count-skip {
-  color: #fab387;
+  color: var(--c-peach);
 }
 
 .count-warn {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .modal-footer {
@@ -308,7 +309,7 @@ function handleBackdropClick(e: MouseEvent) {
   justify-content: flex-end;
   gap: 8px;
   padding: 16px 20px;
-  border-top: 1px solid #313244;
+  border-top: 1px solid var(--c-surface0);
 }
 
 .btn {
@@ -320,8 +321,8 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .btn-primary {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .btn-primary:disabled {
@@ -330,8 +331,8 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .btn-secondary {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
 }
 
 .btn-secondary:disabled {

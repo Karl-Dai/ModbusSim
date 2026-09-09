@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref, inject, watch, computed, provide, onMounted, onUnmounted, type Ref } from 'vue'
+import { ref, inject, watch, computed, provide, shallowRef, onMounted, onUnmounted, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { float32ToU16Pair, useI18n, useFcLabel, formatAddress, showAlert, showConfirm, type ByteOrder } from 'shared-frontend'
+import { float32ToU16Pair, useI18n, useFcLabel, formatAddress, showAlert, showConfirm, showPrompt, type ByteOrder } from 'shared-frontend'
+import RegisterCsvDialog from './RegisterCsvDialog.vue'
+import { encodeRegisterCsv, registerCsvTemplate } from '../utils/registerCsv'
+import { saveExport } from '../utils/saveExport'
 import RegisterModal from './RegisterModal.vue'
 import MutationConfigModal from './MutationConfigModal.vue'
 import DataSourceConfigModal from './DataSourceConfigModal.vue'
@@ -33,7 +36,9 @@ const {
   loadRegisters, refreshValues, clearChangeTimers, getValue: getValueByKey,
 } = useRegisterValues(selectedConnectionId, selectedSlaveId, selectedRegisterType)
 
-const selectedRows = ref<Register[]>([])
+const selectedRows = shallowRef<Register[]>([])
+const actionBusy = ref(false)
+const showCsvImport = ref(false)
 const lastClickedIndex = ref<number>(-1)
 const editingCell = ref<{ address: number; register_type: string } | null>(null)
 const editValue = ref('')
@@ -42,9 +47,69 @@ const contextMenu = ref({ show: false, x: 0, y: 0, reg: null as Register | null 
 const addrMode = ref<'hex' | 'dec'>('hex')
 provide('addrMode', addrMode)
 const showAddModal = ref(false)
+const showEditModal = ref(false)
+const editTarget = ref<Register | undefined>()
 const showBatchModal = ref(false)
 const showDataSourceModal = ref(false)
 const dataSourceTarget = ref<Register | undefined>(undefined)
+
+async function exportCsv() {
+  if (!selectedConnectionId.value || selectedSlaveId.value === null) return
+  try {
+    const rows = await invoke<Register[]>('list_registers', { connectionId: selectedConnectionId.value, slaveId: selectedSlaveId.value })
+    await saveExport(encodeRegisterCsv(rows), `modbus_${selectedSlaveId.value}_registers.csv`)
+  } catch (e) { await showAlert(String(e)) }
+}
+async function template() { try { await saveExport(registerCsvTemplate(), 'modbus_register_template.csv') } catch (e) { await showAlert(String(e)) } }
+function importCsv() { showCsvImport.value = true }
+function simulation() {
+  simTargetRegs.value = selectedRows.value.length ? [...selectedRows.value] : [...filteredRegisters.value]
+  showSimDrawer.value = true
+}
+defineExpose({ exportCsv, template, importCsv, simulation })
+async function copySelected() {
+  try { await navigator.clipboard.writeText(selectedRows.value.map(reg => `${reg.register_type}\t${fmtAddress(reg)}\t${reg.name}\t${currentValueFor(reg)}`).join('\n')) }
+  catch (e) { await showAlert(String(e)) }
+}
+async function deleteSelected() {
+  const rows = [...selectedRows.value], connectionId = selectedConnectionId.value, slaveId = selectedSlaveId.value
+  if (!rows.length || !connectionId || slaveId === null || actionBusy.value) return
+  actionBusy.value = true
+  try {
+    if (!await showConfirm(t('parity.confirmDeleteRows', { n: rows.length }))) return
+    let done = 0
+    try {
+      for (const reg of rows) {
+        await invoke('remove_register', { connectionId, slaveId, address: reg.address, registerType: reg.register_type }); done++
+      }
+    } catch (e) { await showAlert(t('parity.partialResult', { n: done, total: rows.length }) + '\n' + String(e)) }
+    clearSelection(); await loadRegisters()
+  } finally { actionBusy.value = false }
+}
+async function writeSelected() {
+  const rows = [...selectedRows.value], connectionId = selectedConnectionId.value, slaveId = selectedSlaveId.value
+  if (!rows.length || !connectionId || slaveId === null || actionBusy.value) return
+  actionBusy.value = true
+  try {
+    const text = await showPrompt(t('parity.batchValuePrompt', { n: rows.length }), '0')
+    if (text === null) return
+    const value = Number(text)
+    if (!text.trim() || !Number.isFinite(value)) throw new Error(t('parity.invalidNumber'))
+    const writes = rows.map(reg => {
+      const bit = isBitType(reg.register_type)
+      const ranges: Record<string, [number, number]> = { uint16: [0, 65535], int16: [-32768, 32767], uint32: [0, 4294967295], int32: [-2147483648, 2147483647] }
+      const range = ranges[reg.data_type]
+      if (bit && value !== 0 && value !== 1 || range && (!Number.isInteger(value) || value < range[0] || value > range[1]) || reg.data_type === 'float32' && !Number.isFinite(Math.fround(value))) throw new Error(t('parity.invalidNumber'))
+      const encoded = is32BitType(reg.data_type) ? encodeTypedValue(value, reg.data_type, reg.endian) : [reg.data_type === 'int16' && value < 0 ? value + 65536 : value]
+      return encoded.map((word, offset) => ({ connection_id: connectionId, slave_id: slaveId, register_type: reg.register_type, address: reg.address + offset, value: word }))
+    }).flat()
+    let done = 0
+    try { for (const request of writes) { await invoke('write_register', { request }); done++ } }
+    catch (e) { await showAlert(t('parity.partialResult', { n: done, total: writes.length }) + '\n' + String(e)) }
+    await refreshValues(); emitSelection()
+  } catch (e) { await showAlert(String(e)) }
+  finally { actionBusy.value = false }
+}
 
 function openDataSource(reg: Register) {
   dataSourceTarget.value = reg
@@ -100,6 +165,8 @@ const mutationRows = ref<PointMutationInfo[]>([])
 const showSimDrawer = ref(false)
 const simTargetRegs = ref<Register[]>([])
 let mutationPollTimer: number | null = null
+let mutationPollPending = false
+let disposed = false
 const MODE_SYMBOL: Record<string, string> = { flip: '⇅', increment: '↑', decrement: '↓', random: '🎲' }
 function modeSymbol(mode?: string): string {
   return mode ? (MODE_SYMBOL[mode] ?? '∿') : '∿'
@@ -121,6 +188,8 @@ async function refreshMutationIndicators() {
     mutationRows.value = []
     return
   }
+  const connectionId = selectedConnectionId.value
+  const slaveId = selectedSlaveId.value
   try {
     const rows = await invoke<PointMutationInfo[]>('list_point_mutations', {
       request: {
@@ -128,6 +197,7 @@ async function refreshMutationIndicators() {
         slave_id: selectedSlaveId.value,
       },
     })
+    if (disposed || connectionId !== selectedConnectionId.value || slaveId !== selectedSlaveId.value) return
     mutationRows.value = rows
     mutationModes.value = Object.fromEntries(
       rows.map(row => [`${row.register_type}-${row.address}`, row.mode])
@@ -136,6 +206,18 @@ async function refreshMutationIndicators() {
     mutationModes.value = {}
     mutationRows.value = []
   }
+}
+// Keep live mutation values independent from the toolbar's presence.
+async function pollMutationValues() {
+  if (disposed || mutationPollPending) return
+  mutationPollPending = true
+  try {
+    await refreshMutationIndicators()
+    if (!disposed && mutationRows.value.length > 0) {
+      await refreshValues()
+      if (!disposed) emitSelection()
+    }
+  } finally { mutationPollPending = false }
 }
 async function onMutationSaved() {
   await loadRegisters()
@@ -310,10 +392,11 @@ onMounted(() => {
     }
   } catch { /* use defaults */ }
   refreshMutationIndicators()
-  mutationPollTimer = window.setInterval(refreshMutationIndicators, 2000)
+  mutationPollTimer = window.setInterval(pollMutationValues, 2000)
 })
 
 onUnmounted(() => {
+  disposed = true
   if (mutationPollTimer !== null) clearInterval(mutationPollTimer)
   stopColumnResize?.()
 })
@@ -365,7 +448,11 @@ function handleTableKeydown(e: KeyboardEvent) {
   if (editingCell.value) return
 
   const list = filteredRegisters.value
-  if (list.length === 0) return
+  if (list.length === 0 || actionBusy.value) return
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectedRows.value = [...list]; emitSelection(); return }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c') { e.preventDefault(); void copySelected(); return }
+  if (e.key === 'Escape') { clearSelection(); return }
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); void deleteSelected(); return }
 
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
@@ -478,6 +565,7 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 function showContextMenu(e: MouseEvent, reg: Register) {
   e.preventDefault()
+  if (!isSelected(reg)) { selectedRows.value = [reg]; emitSelection() }
   contextMenu.value = { show: true, x: e.clientX, y: e.clientY, reg }
 }
 
@@ -550,6 +638,14 @@ function toggleAddrMode() {
       <span class="table-count">{{ t('table.registerCount', { count: filteredRegisters.length }) }}</span>
     </div>
 
+    <div v-if="selectedRows.length" class="selection-actions" role="toolbar" :aria-label="t('parity.selectedActions')">
+      <span>{{ t('parity.selectedCount', { n: selectedRows.length }) }}</span>
+      <button :disabled="actionBusy" @click="copySelected">{{ t('parity.copy') }}</button>
+      <button :disabled="actionBusy" @click="writeSelected">{{ t('parity.batchWrite') }}</button>
+      <button :disabled="actionBusy" @click="simulation">{{ t('simulationSettings.open') }}</button>
+      <button :disabled="actionBusy" @click="deleteSelected">{{ t('common.delete') }}</button>
+      <button :disabled="actionBusy" @click="clearSelection">{{ t('common.cancel') }}</button>
+    </div>
     <div v-if="isLoading" class="table-loading">{{ t('common.loading') }}</div>
     <div v-else-if="!selectedConnectionId || selectedSlaveId === null" class="table-empty">
       {{ t('registerTable.selectSlave') }}
@@ -575,7 +671,7 @@ function toggleAddrMode() {
       <div class="virtual-body" :style="{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }">
         <div
           v-for="virtualRow in rowVirtualizer.getVirtualItems()"
-          :key="filteredRegisters[virtualRow.index]?.address ?? virtualRow.index"
+          :key="`${filteredRegisters[virtualRow.index]?.register_type}:${filteredRegisters[virtualRow.index]?.address}`"
           class="virtual-row"
           :class="{
             selected: isSelected(filteredRegisters[virtualRow.index]),
@@ -644,10 +740,14 @@ function toggleAddrMode() {
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       @click.stop
     >
+      <div class="context-menu-item" @click="editTarget = contextMenu.reg ?? undefined; showEditModal = true; closeContextMenu()">{{ t('common.edit') }}</div>
       <div class="context-menu-item" @click="openSimulationSettings">{{ t('simulationSettings.open') }}</div>
       <div class="context-menu-item danger" @click="deleteRegister">{{ t('registerEdit.deleteRegister') }}</div>
     </div>
 
+    <RegisterCsvDialog v-if="showCsvImport && selectedConnectionId && selectedSlaveId !== null"
+      :connection-id="selectedConnectionId" :slave-id="selectedSlaveId" @close="showCsvImport = false" @imported="onRegisterSaved" />
+    <RegisterModal :show="showEditModal" mode="edit" :register="editTarget" :existing-registers="registers" :connection-id="selectedConnectionId ?? ''" :slave-id="selectedSlaveId ?? 0" @close="showEditModal = false" @saved="onRegisterSaved" />
     <!-- Add Register Modal -->
     <RegisterModal
       :show="showAddModal"
@@ -703,6 +803,10 @@ function toggleAddrMode() {
 </template>
 
 <style scoped>
+.selection-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; background: var(--c-base); font-size: 12px; }
+.selection-actions button { padding: 4px 8px; border: 1px solid var(--c-surface1); border-radius: 4px; background: var(--c-surface0); color: var(--c-text); cursor: pointer; }
+.selection-actions span { color: var(--c-blue); }
+
 .register-table {
   display: flex;
   flex-direction: column;
@@ -714,15 +818,16 @@ function toggleAddrMode() {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 8px 12px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   flex-shrink: 0;
 }
 
 .table-title {
   font-size: 12px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
   white-space: nowrap;
 }
 
@@ -730,28 +835,28 @@ function toggleAddrMode() {
   flex: 1;
   min-width: 0;
   padding: 4px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   outline: none;
 }
 
 .search-input:focus {
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .search-input::placeholder {
-  color: #6c7086;
+  color: var(--c-overlay0);
 }
 
 .addr-mode-btn {
   padding: 2px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 11px;
   font-family: 'SF Mono', 'Fira Code', monospace;
   cursor: pointer;
@@ -759,30 +864,30 @@ function toggleAddrMode() {
 }
 
 .addr-mode-btn:hover {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .format-select {
   padding: 2px 6px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 11px;
   cursor: pointer;
 }
 
 .format-select:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .add-reg-btn {
   padding: 2px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-surface0);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #a6e3a1;
+  color: var(--c-green);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -796,7 +901,7 @@ function toggleAddrMode() {
 }
 
 .add-reg-btn:hover:not(:disabled) {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .add-reg-btn:disabled {
@@ -806,12 +911,12 @@ function toggleAddrMode() {
 
 .table-count {
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   white-space: nowrap;
 }
 
 .table-error {
-  color: #f38ba8;
+  color: var(--c-red);
   font-weight: 700;
   font-size: 14px;
   cursor: help;
@@ -823,7 +928,7 @@ function toggleAddrMode() {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 13px;
 }
 
@@ -845,15 +950,15 @@ function toggleAddrMode() {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #1e1e2e;
-  border-bottom: 1px solid #313244;
+  background: var(--c-base);
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .head-cell {
   position: relative;
   min-width: 0;
   padding: 6px 10px;
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -888,42 +993,42 @@ function toggleAddrMode() {
 }
 
 .table th {
-  background: #1e1e2e;
-  color: #6c7086;
+  background: var(--c-base);
+  color: var(--c-overlay0);
   font-weight: 500;
   text-align: left;
   padding: 6px 10px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   position: sticky;
   top: 0;
 }
 
 .table td {
   padding: 5px 10px;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-base);
   cursor: pointer;
 }
 
 .table tbody tr:hover {
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .table tbody tr.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .table tbody tr.selected .col-comment {
-  color: #45475a;
+  color: var(--c-surface1);
 }
 
 .col-addr {
   font-family: 'SF Mono', 'Fira Code', monospace;
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 
 .table tbody tr.selected .col-addr {
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .col-name {
@@ -933,7 +1038,7 @@ function toggleAddrMode() {
 }
 
 .col-comment {
-  color: #6c7086;
+  color: var(--c-overlay0);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -949,13 +1054,13 @@ function toggleAddrMode() {
 }
 
 .bool-value.on {
-  background: #a6e3a1;
-  color: #1e1e2e;
+  background: var(--c-green);
+  color: var(--c-base);
 }
 
 .bool-value.off {
-  background: #45475a;
-  color: #6c7086;
+  background: var(--c-surface1);
+  color: var(--c-overlay0);
 }
 
 .num-value {
@@ -963,7 +1068,7 @@ function toggleAddrMode() {
 }
 
 .companion-value {
-  color: #45475a;
+  color: var(--c-surface1);
   font-size: 11px;
   font-style: italic;
 }
@@ -971,10 +1076,10 @@ function toggleAddrMode() {
 .edit-input {
   width: 90px;
   padding: 2px 6px;
-  background: #1e1e2e;
-  border: 1px solid #89b4fa;
+  background: var(--c-base);
+  border: 1px solid var(--c-blue);
   border-radius: 3px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-family: monospace;
   font-size: 12px;
 }
@@ -984,24 +1089,24 @@ function toggleAddrMode() {
   align-items: center;
   cursor: pointer;
   font-size: 12px;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-base);
 }
 
 .virtual-row:hover {
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .virtual-row.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .virtual-row.selected .col-addr {
-  color: #1e1e2e;
+  color: var(--c-base);
 }
 
 .virtual-row.selected .col-comment {
-  color: #45475a;
+  color: var(--c-surface1);
 }
 
 .virtual-row.value-changed {
@@ -1010,11 +1115,11 @@ function toggleAddrMode() {
 }
 
 .virtual-row.value-changed.selected {
-  background: #89b4fa;
+  background: var(--c-blue);
 }
 
 .col-value.value-highlight {
-  color: #fab387;
+  color: var(--c-peach);
   font-weight: 700;
   transition: color 0.6s ease-out;
 }
@@ -1047,17 +1152,17 @@ function toggleAddrMode() {
 }
 
 /* Context Menu */
-.mut-badge { background: none; border: none; color: #585b70; cursor: pointer; font-size: 11px; padding: 0 5px 0 0; line-height: 1; }
-.mut-badge:hover { color: #cdd6f4; }
-.mut-badge.active { color: #a6e3a1; font-weight: 700; }
-.source-badge { background: none; border: none; color: #585b70; cursor: pointer; font-size: 13px; padding: 0 5px 0 0; line-height: 1; }
-.source-badge:hover { color: #cdd6f4; }
-.source-badge.active { color: #89b4fa; font-weight: 700; }
+.mut-badge { background: none; border: none; color: var(--c-surface2); cursor: pointer; font-size: 11px; padding: 0 5px 0 0; line-height: 1; }
+.mut-badge:hover { color: var(--c-text); }
+.mut-badge.active { color: var(--c-green); font-weight: 700; }
+.source-badge { background: none; border: none; color: var(--c-surface2); cursor: pointer; font-size: 13px; padding: 0 5px 0 0; line-height: 1; }
+.source-badge:hover { color: var(--c-text); }
+.source-badge.active { color: var(--c-blue); font-weight: 700; }
 
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   z-index: 999;
   min-width: 140px;
@@ -1067,17 +1172,17 @@ function toggleAddrMode() {
 .context-menu-item {
   padding: 8px 14px;
   font-size: 13px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
   border-radius: 6px;
 }
 
 .context-menu-item:hover {
-  background: #313244;
+  background: var(--c-surface0);
 }
 
 .context-menu-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 
 .context-menu-item.danger:hover {

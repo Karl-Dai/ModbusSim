@@ -1,6 +1,8 @@
 mod analytics;
 mod commands;
+mod connection_settings;
 mod data_source;
+mod frame_tools;
 mod mutation;
 mod state;
 pub mod update;
@@ -30,6 +32,8 @@ pub fn run() {
             commands::stop_slave_connection,
             commands::delete_slave_connection,
             commands::list_slave_connections,
+            connection_settings::get_slave_transport,
+            connection_settings::update_slave_transport,
             // Slave device commands
             commands::add_slave_device,
             commands::update_slave_device,
@@ -39,11 +43,13 @@ pub fn run() {
             commands::add_register,
             commands::update_register,
             commands::remove_register,
+            commands::remove_register,
             commands::read_register,
             commands::read_registers_bulk,
             commands::write_register,
             commands::list_registers,
             commands::export_registers,
+            commands::save_text_export,
             commands::import_registers,
             // Log commands
             commands::get_communication_logs,
@@ -55,6 +61,7 @@ pub fn run() {
             commands::calculate_crc16,
             commands::calculate_lrc,
             commands::parse_hex,
+            frame_tools::inspect_modbus_frame,
             // State persistence commands
             commands::export_app_state,
             commands::import_app_state,

@@ -45,6 +45,27 @@ impl Default for ReconnectPolicy {
 }
 
 impl ReconnectPolicy {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.initial_delay_ms == 0 || self.initial_delay_ms > 60_000 {
+            return Err("initial reconnect delay must be between 1 and 60000 ms".into());
+        }
+        if self.max_delay_ms < self.initial_delay_ms || self.max_delay_ms > 600_000 {
+            return Err(
+                "maximum reconnect delay must be at least the initial delay and at most 600000 ms"
+                    .into(),
+            );
+        }
+        if !self.backoff_factor.is_finite() || !(1.0..=10.0).contains(&self.backoff_factor) {
+            return Err("reconnect backoff factor must be between 1 and 10".into());
+        }
+        if self.max_attempts.is_some_and(|n| n == 0 || n > 10_000) {
+            return Err(
+                "reconnect attempts must be between 1 and 10000, or null for unlimited".into(),
+            );
+        }
+        Ok(())
+    }
+
     /// Compute the delay before `attempt` (0-based).
     ///
     /// delay = initial_delay_ms * backoff_factor^attempt, clamped to max_delay_ms.
@@ -137,6 +158,22 @@ mod tests {
         for attempt in [0, 1, 100] {
             assert!(!p.should_retry(attempt));
         }
+    }
+
+    #[test]
+    fn validates_user_configured_backoff() {
+        let mut policy = ReconnectPolicy::default();
+        assert!(policy.validate().is_ok());
+        policy.max_delay_ms = 500;
+        assert!(policy.validate().is_err());
+        policy.max_delay_ms = 5000;
+        policy.backoff_factor = f64::NAN;
+        assert!(policy.validate().is_err());
+        policy.backoff_factor = 1.0;
+        policy.max_attempts = Some(3);
+        assert!(policy.validate().is_ok());
+        assert_eq!(policy.delay_for_attempt(2), Duration::from_millis(1000));
+        assert!(!policy.should_retry(3));
     }
 
     #[test]

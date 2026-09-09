@@ -11,11 +11,12 @@ use modbussim_core::log_collector::LogCollector;
 use modbussim_core::log_entry::LogEntry;
 use modbussim_core::log_helpers;
 use modbussim_core::master::{
-    scan_registers_with_ctx, scan_slave_ids_with_ctx, MasterConfig, MasterConnection, MasterState,
+    scan_registers_paced, scan_slave_ids_paced, MasterConfig, MasterConnection, MasterState,
     ReadFunction, ReadResult, ScanGroup,
 };
 use modbussim_core::parse::{parse_read_function, read_function_to_string};
 use modbussim_core::reconnect::ReconnectPolicy;
+use modbussim_core::request::RequestSettings;
 use modbussim_core::socks5::Socks5Config;
 use modbussim_core::tools;
 use modbussim_core::transport::{self, Parity, SerialConfig, TlsConfig, Transport};
@@ -207,6 +208,10 @@ pub struct CreateMasterRequest {
     pub transport: TransportRequest,
     pub slave_id: u8,
     pub timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub requests: RequestSettings,
+    #[serde(default)]
+    pub reconnect_policy: ReconnectPolicy,
     pub use_tls: Option<bool>,
     pub ca_file: Option<String>,
     pub cert_file: Option<String>,
@@ -222,6 +227,8 @@ pub async fn create_master_connection(
     state: State<'_, AppState>,
     request: CreateMasterRequest,
 ) -> Result<MasterConnectionInfo, String> {
+    request.requests.validate()?;
+    request.reconnect_policy.validate()?;
     let id = {
         let mut counter = state.next_conn_id.write().await;
         let id = format!("master_{}", *counter);
@@ -248,6 +255,7 @@ pub async fn create_master_connection(
         port,
         slave_id: request.slave_id,
         timeout_ms: request.timeout_ms.unwrap_or(3000),
+        requests: request.requests,
         tls: TlsConfig {
             enabled: request.use_tls.unwrap_or(false),
             ca_file: request.ca_file.unwrap_or_default(),
@@ -261,8 +269,9 @@ pub async fn create_master_connection(
     };
 
     let log_collector = Arc::new(LogCollector::new());
-    let connection =
+    let mut connection =
         MasterConnection::new(config.clone(), transport).with_log_collector(log_collector.clone());
+    connection.reconnect_policy = request.reconnect_policy;
 
     let info = MasterConnectionInfo {
         id: id.clone(),
@@ -602,6 +611,7 @@ pub async fn add_scan_group(
         enabled: request.enabled.unwrap_or(true),
         slave_id: request.slave_id,
     };
+    group.validate()?;
 
     let mut conns = state.master_connections.write().await;
     let conn_state = conns
@@ -652,24 +662,27 @@ pub async fn update_scan_group(
         .find(|g| g.id == group_id)
         .ok_or_else(|| format!("Scan group not found: {}", group_id))?;
 
+    let mut updated = group.clone();
     if let Some(name) = request.name {
-        group.name = name;
+        updated.name = name;
     }
     if let Some(function) = request.function {
-        group.function = parse_read_function(&function)?;
+        updated.function = parse_read_function(&function)?;
     }
     if let Some(addr) = request.start_address {
-        group.start_address = addr;
+        updated.start_address = addr;
     }
     if let Some(qty) = request.quantity {
-        group.quantity = qty;
+        updated.quantity = qty;
     }
     if let Some(ms) = request.interval_ms {
-        group.interval_ms = ms;
+        updated.interval_ms = ms;
     }
     if let Some(enabled) = request.enabled {
-        group.enabled = enabled;
+        updated.enabled = enabled;
     }
+    updated.validate()?;
+    *group = updated;
 
     let is_polling = conn_state.connection.is_scan_active(&group_id);
 
@@ -1184,13 +1197,17 @@ pub async fn start_slave_id_scan(
     let end_id = request.end_id.unwrap_or(247);
 
     // Extract ctx handle and original slave_id (short lock)
-    let (ctx_handle, original_slave_id) = {
+    let (ctx_handle, original_slave_id, pacer) = {
         let conns = state.master_connections.read().await;
         let cs = conns
             .get(&connection_id)
             .ok_or_else(|| format!("connection {} not found", connection_id))?;
         let ctx = cs.connection.get_ctx_handle().map_err(|e| e.to_string())?;
-        (ctx, cs.connection.config.slave_id)
+        (
+            ctx,
+            cs.connection.config.slave_id,
+            cs.connection.request_pacer(),
+        )
     };
 
     // Create cancel channel
@@ -1209,12 +1226,13 @@ pub async fn start_slave_id_scan(
 
     // Spawn scan task
     tokio::spawn(async move {
-        scan_slave_ids_with_ctx(
+        scan_slave_ids_paced(
             ctx_handle,
             original_slave_id,
             start_id,
             end_id,
             Duration::from_millis(timeout_ms),
+            pacer,
             cancel_rx,
             progress_tx,
         )
@@ -1263,16 +1281,26 @@ pub async fn start_register_scan(
     request: RegisterScanRequest,
 ) -> Result<(), String> {
     let function = parse_read_function(&request.function)?;
-    let chunk_size = request.chunk_size.unwrap_or(10);
+    let mut chunk_size = request.chunk_size.unwrap_or(10);
     let timeout_ms = request.timeout_ms.unwrap_or(1000);
 
     // Extract ctx handle (short lock)
-    let ctx_handle = {
+    let (ctx_handle, slave_id, pacer) = {
         let conns = state.master_connections.read().await;
         let cs = conns
             .get(&connection_id)
             .ok_or_else(|| format!("connection {} not found", connection_id))?;
-        cs.connection.get_ctx_handle().map_err(|e| e.to_string())?
+        let limits = &cs.connection.config.requests;
+        let limit = match function {
+            ReadFunction::ReadCoils | ReadFunction::ReadDiscreteInputs => limits.max_read_bits,
+            _ => limits.max_read_registers,
+        };
+        chunk_size = chunk_size.clamp(1, limit);
+        (
+            cs.connection.get_ctx_handle().map_err(|e| e.to_string())?,
+            cs.connection.config.slave_id,
+            cs.connection.request_pacer(),
+        )
     };
 
     // Create cancel channel
@@ -1292,13 +1320,15 @@ pub async fn start_register_scan(
 
     // Spawn scan task
     tokio::spawn(async move {
-        scan_registers_with_ctx(
+        scan_registers_paced(
             ctx_handle,
+            Some(slave_id),
             function,
             request.start_address,
             end_address,
             chunk_size,
             Duration::from_millis(timeout_ms),
+            pacer,
             cancel_rx,
             progress_tx,
         )
@@ -1442,6 +1472,7 @@ pub async fn save_project_file(state: State<'_, AppState>, path: String) -> Resu
                 .collect(),
             default_slave_id: config.slave_id,
             timeout_ms: config.timeout_ms,
+            requests: config.requests.clone(),
             reconnect_policy: conn_state.connection.reconnect_policy.clone(),
             socks5: config.socks5.clone(),
         };
@@ -1567,6 +1598,8 @@ pub async fn load_project_file(state: State<'_, AppState>, path: String) -> Resu
             ));
         }
         let socks5 = config.socks5.clone();
+        config.requests.validate()?;
+        config.reconnect_policy.validate()?;
         let (transport, tls, target_address, port) =
             master_transport_from_project(config.transport);
         let master_config = MasterConfig {
@@ -1574,6 +1607,7 @@ pub async fn load_project_file(state: State<'_, AppState>, path: String) -> Resu
             port,
             slave_id: config.default_slave_id,
             timeout_ms: config.timeout_ms.max(1),
+            requests: config.requests,
             tls,
             socks5,
         };
@@ -1584,18 +1618,7 @@ pub async fn load_project_file(state: State<'_, AppState>, path: String) -> Resu
         let mut scan_groups = Vec::with_capacity(config.scan_groups.len());
         for scan in config.scan_groups {
             let function = read_function_from_fc(scan.function_code)?;
-            let max_quantity = if matches!(
-                function,
-                ReadFunction::ReadCoils | ReadFunction::ReadDiscreteInputs
-            ) {
-                2000
-            } else {
-                125
-            };
-            if scan.count == 0
-                || scan.count > max_quantity
-                || (scan.start_address as u32 + scan.count as u32) > 65_536
-            {
+            if scan.count == 0 || (scan.start_address as u32 + scan.count as u32) > 65_536 {
                 return Err(format!("invalid scan group {} address or count", scan.name));
             }
             if scan.interval_ms == 0 || !(1..=247).contains(&scan.slave_id) {

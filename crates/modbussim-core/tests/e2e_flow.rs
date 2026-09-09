@@ -18,6 +18,7 @@ use modbussim_core::master::{
 use modbussim_core::slave::{SlaveConnection, SlaveDevice};
 use modbussim_core::transport::Transport;
 use tokio::sync::{mpsc, oneshot};
+use tokio_modbus::client::Reader;
 use tokio_modbus::ExceptionCode;
 
 /// 统一日志：`[E2E 12345ms] [stage       ] msg`。
@@ -384,23 +385,21 @@ async fn e2e_exception_codes_full() {
     master.connect().await.expect("connect");
     step!("MASTER", "connected");
 
+    // Use the raw context to send deliberately oversized packets: MasterConnection::read
+    // now splits logical ranges into protocol-sized requests.
+    let ctx = master.get_ctx_handle().expect("raw context");
     // (a) FC03 qty=1000 → IllegalDataValue（FC03 上限 125）
-    let res = master
-        .read(ReadFunction::ReadHoldingRegisters, 0, 1000)
-        .await;
+    let res = ctx.lock().await.read_holding_registers(0, 1000).await;
     step!("EXC IDV", "FC03 qty=1000 -> {:?}", res);
     match res {
-        Err(MasterError::Exception(ExceptionCode::IllegalDataValue)) => {}
+        Ok(Err(ExceptionCode::IllegalDataValue)) => {}
         other => panic!("expected IllegalDataValue, got {other:?}"),
     }
 
     // (b) FC04 qty=200 同理（FC04 上限 125）
-    let res = master.read(ReadFunction::ReadInputRegisters, 0, 200).await;
+    let res = ctx.lock().await.read_input_registers(0, 200).await;
     step!("EXC IDV", "FC04 qty=200 -> {:?}", res);
-    assert!(matches!(
-        res,
-        Err(MasterError::Exception(ExceptionCode::IllegalDataValue))
-    ));
+    assert!(matches!(res, Ok(Err(ExceptionCode::IllegalDataValue))));
 
     // (c) 未知 slave_id：reconnect 用 slave_id=99 → slave 静默丢弃 → Timeout
     master.disconnect().await.ok();

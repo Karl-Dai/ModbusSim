@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vModal } from '../directives/modal'
 import { ref, watch, nextTick } from 'vue'
 import { useDialogState } from '../composables/useDialog'
 import { useI18n } from '../i18n'
@@ -36,7 +37,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="state.visible" class="dialog-backdrop" @click.self="dialogCancel" @keydown="handleKeydown">
+    <div v-if="state.visible" v-modal="dialogCancel" :aria-label="state.title" class="dialog-backdrop" @click.self="dialogCancel" @keydown="handleKeydown">
       <div class="dialog" role="dialog" aria-modal="true">
         <div class="dialog-header">
           <span class="dialog-title">{{ state.title }}</span>
@@ -49,8 +50,8 @@ function handleKeydown(e: KeyboardEvent) {
             v-model="inputValue"
             class="dialog-input"
             type="text"
-            @keydown.enter="handleConfirm"
-            @keydown.escape="dialogCancel"
+            @keydown.enter.stop="handleConfirm"
+            @keydown.escape.stop="dialogCancel"
           />
         </div>
         <div class="dialog-footer">
@@ -81,8 +82,8 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .dialog {
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 8px;
   width: 360px;
   max-width: 90vw;
@@ -96,7 +97,7 @@ function handleKeydown(e: KeyboardEvent) {
 .dialog-title {
   font-size: 15px;
   font-weight: 600;
-  color: #cdd6f4;
+  color: var(--c-text);
 }
 
 .dialog-body {
@@ -105,7 +106,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 .dialog-message {
   font-size: 13px;
-  color: #bac2de;
+  color: var(--c-subtext1);
   line-height: 1.5;
   margin: 0 0 8px;
   word-break: break-word;
@@ -114,10 +115,10 @@ function handleKeydown(e: KeyboardEvent) {
 .dialog-input {
   width: 100%;
   padding: 8px 12px;
-  background: #11111b;
-  border: 1px solid #45475a;
+  background: var(--c-crust);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 14px;
   box-sizing: border-box;
   margin-top: 4px;
@@ -125,7 +126,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 .dialog-input:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .dialog-footer {
@@ -144,20 +145,20 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .btn-primary {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-blue);
+  color: var(--c-base);
 }
 
 .btn-primary:hover {
-  background: #74c7ec;
+  background: var(--c-sapphire);
 }
 
 .btn-secondary {
-  background: #45475a;
-  color: #cdd6f4;
+  background: var(--c-surface1);
+  color: var(--c-text);
 }
 
 .btn-secondary:hover {
-  background: #585b70;
+  background: var(--c-surface2);
 }
 </style>
