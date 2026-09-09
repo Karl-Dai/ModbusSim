@@ -100,7 +100,7 @@ watch(
 )
 
 function close() {
-  if (!actionPending.value) emit('close')
+  emit('close')
 }
 
 function handleBackdrop(event: MouseEvent) {
@@ -163,13 +163,15 @@ async function applyToSelection() {
       max: max.value,
     },
   }))
+  const connectionId = props.connectionId
+  const slaveId = props.slaveId
   actionPending.value = true
   try {
     for (const target of targets) {
       await invoke('set_point_mutation', {
         request: {
-          connection_id: props.connectionId,
-          slave_id: props.slaveId,
+          connection_id: connectionId,
+          slave_id: slaveId,
           register_type: target.register_type,
           address: target.address,
           config: target.config,
@@ -190,13 +192,16 @@ async function applyToSelection() {
 
 async function stopPoints(points: Array<{ register_type: string; address: number }>) {
   if (actionPending.value || points.length === 0) return
+  const connectionId = props.connectionId
+  const slaveId = props.slaveId
+  const targets = points.map(({ register_type, address }) => ({ register_type, address }))
   actionPending.value = true
   try {
-    for (const point of points) {
+    for (const point of targets) {
       await invoke('clear_point_mutation', {
         request: {
-          connection_id: props.connectionId,
-          slave_id: props.slaveId,
+          connection_id: connectionId,
+          slave_id: slaveId,
           register_type: point.register_type,
           address: point.address,
         },
@@ -247,7 +252,6 @@ function pointTitle(reg: { register_type: string; address: number }) {
             </div>
             <button
               class="sim-close"
-              :disabled="actionPending"
               :aria-label="t('common.close')"
               @click="close"
             >×</button>
@@ -625,8 +629,7 @@ function pointTitle(reg: { register_type: string; address: number }) {
 }
 
 .sim-btn:disabled,
-.sim-row-stop:disabled,
-.sim-close:disabled {
+.sim-row-stop:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
