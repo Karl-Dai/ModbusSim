@@ -1,102 +1,109 @@
-/* Shared toolbar chrome — imported from both master and slave main.ts so the
-   two apps stay visually identical. App-specific pieces (split buttons, the
-   gear icon, dropdown menus) live in each Toolbar.vue's scoped <style>. */
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  height: 42px;
-  padding: 0 8px;
-  gap: 0;
+/* Shared desktop menu bar and quick actions for both stations. */
+.app-toolbar {
+  min-width: 0;
+  background: var(--c-base);
+  color: var(--c-text);
   user-select: none;
 }
 
-/* Left operations region: shrinks and scrolls horizontally on narrow windows
-   so the right-side status region never gets clipped. Dropdown menus inside it
-   are teleported to <body> to avoid being clipped by this scroll container. */
-.toolbar-main {
-  flex: 1 1 auto;
-  min-width: 0;
+.toolbar-menu-row,
+.toolbar-action-row {
   display: flex;
   align-items: center;
+  gap: 12px;
+  padding: 4px 10px;
+  min-width: 0;
+}
+
+.toolbar-menu-row { min-height: 36px; }
+.toolbar-action-row {
+  min-height: 42px;
+  border-top: 1px solid var(--c-surface0);
+  background: var(--c-mantle);
+}
+
+.toolbar-menubar,
+.toolbar-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.toolbar-menubar {
+  flex: 0 1 auto;
   overflow-x: auto;
-  overflow-y: hidden;
   scrollbar-width: thin;
 }
-.toolbar-main::-webkit-scrollbar {
-  height: 6px;
-}
 
-/* Right status region: update / language / version / about — always visible. */
-.toolbar-aside {
-  flex: none;
+.toolbar-quick-actions { flex-wrap: wrap; }
+.toolbar-menubar > *, .toolbar-quick-actions > * { flex: none; }
+
+.toolbar-project {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding-left: 4px;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
 }
-
-.toolbar-main > .toolbar-group,
-.toolbar-main > .toolbar-divider {
-  flex: none;
+.toolbar-app-name { color: var(--c-subtext0); font-weight: 600; }
+.toolbar-project-name {
+  color: var(--c-subtext1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.toolbar-group {
-  display: flex;
-  gap: 2px;
-}
+.toolbar-aside { display: flex; align-items: center; gap: 4px; flex: none; }
 
 .toolbar-divider {
   width: 1px;
-  height: 20px;
-  background: var(--c-surface0);
-  margin: 0 4px;
+  height: 18px;
+  background: var(--c-surface1);
+  margin: 0 6px;
 }
-
 .toolbar-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: none;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--c-text);
   cursor: pointer;
   border-radius: 4px;
+  font: inherit;
   font-size: 12px;
   white-space: nowrap;
 }
-
-.toolbar-btn:hover:not(:disabled) {
-  background: var(--c-surface0);
-}
-
-.toolbar-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* These classes are scoped under .toolbar-btn so the generic names can't leak
-   onto unrelated elements elsewhere (e.g. modal .btn-close × buttons). */
-.toolbar-btn .btn-icon {
-  font-weight: bold;
-  font-size: 14px;
-}
-
+.toolbar-menubar .toolbar-btn { min-height: 28px; padding: 3px 8px; }
+.toolbar-btn:hover:not(:disabled) { background: var(--c-surface0); }
+.toolbar-btn:active:not(:disabled) { background: var(--c-surface1); }
+.toolbar-btn:focus-visible { outline: 2px solid var(--c-blue); outline-offset: -2px; }
+.toolbar-btn:disabled { opacity: .4; cursor: default; }
+.toolbar-btn svg { flex: none; }
 .toolbar-btn.btn-start { color: var(--c-green); }
 .toolbar-btn.btn-stop { color: var(--c-peach); }
-.toolbar-btn.btn-close { color: var(--c-red); }
+.toolbar-btn.btn-danger { color: var(--c-red); }
 
-.toolbar-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--c-overlay0);
-  padding-right: 8px;
+.toolbar-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  color: var(--c-subtext0);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.toolbar-title.as-button {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
+.toolbar-status:empty { display: none; }
+
+@media (max-width: 1000px) {
+  .toolbar-app-name { display: none; }
+  .toolbar-menu-row, .toolbar-action-row { gap: 6px; padding-inline: 6px; }
+  .toolbar-quick-actions .toolbar-btn { padding-inline: 6px; }
+  .toolbar-divider { margin-inline: 3px; }
 }
-.toolbar-title.as-button:hover { color: var(--c-text); }

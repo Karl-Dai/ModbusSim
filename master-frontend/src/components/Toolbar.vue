@@ -6,8 +6,10 @@ import {
   useI18n,
   useUpdateProgress,
   localizeUpdateError,
-  LangToggle,
-  VersionBadge,
+  AppToolbar,
+  useProjectShortcuts,
+  type ToolbarAction,
+  type ToolbarMenuDefinition,
   showAlert,
   showConfirm,
 } from 'shared-frontend'
@@ -22,6 +24,17 @@ const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
 const refreshTree = inject<() => void>('refreshTree')!
 
+const busy = ref(false)
+async function run(action: () => unknown) {
+  if (busy.value) return
+  busy.value = true
+  try { await action() } catch (error) { await showAlert(String(error)) } finally { busy.value = false }
+}
+const shortcuts = useProjectShortcuts({
+  open: () => run(openProject),
+  save: () => run(saveProject),
+  saveAs: () => run(saveProjectAs),
+})
 const currentProjectPath = ref<string | null>(null)
 const showNewConn = ref(false)
 const editingConnectionId = ref<string | null>(null)
@@ -108,6 +121,7 @@ async function disconnectMaster() {
 
 async function deleteMaster() {
   if (!selectedConnectionId.value) return
+  if (!await showConfirm(t('errors.confirmDeleteConnection'))) return
   try {
     await invoke('delete_master_connection', { connectionId: selectedConnectionId.value })
     selectedConnectionId.value = null
@@ -132,82 +146,45 @@ async function stopAllPolling() {
   } catch (e) { await showAlert(String(e)) }
 }
 
-const isConnected = () => selectedConnectionState.value === 'Connected'
-const isReconnecting = () => selectedConnectionState.value === 'Reconnecting'
-const isDisconnected = () => selectedConnectionState.value === 'Disconnected'
-const hasConnection = () => selectedConnectionId.value !== null
+const isConnected = computed(() => selectedConnectionState.value === 'Connected')
+const isReconnecting = computed(() => selectedConnectionState.value === 'Reconnecting')
+const isDisconnected = computed(() => selectedConnectionState.value === 'Disconnected')
+const hasConnection = computed(() => selectedConnectionId.value !== null)
+const actions = computed(() => ({
+  open: { id: 'open', label: t('toolbar.openProjectTitle'), shortcut: shortcuts.open, action: () => run(openProject) },
+  save: { id: 'save', label: t('toolbar.saveProjectTitle'), icon: 'save', shortcut: shortcuts.save, separatorBefore: true, action: () => run(saveProject) },
+  saveAs: { id: 'save-as', label: t('toolbar.saveAsTitle'), shortcut: shortcuts.saveAs, action: () => run(saveProjectAs) },
+  newConnection: { id: 'new-connection', label: t('toolbar.newConnection'), icon: 'add', action: () => { showNewConn.value = true } },
+  settings: { id: 'connection-settings', label: t('parity.connectionSettings'), title: t('dialog.editConnectionHint'), disabled: !hasConnection.value || !isDisconnected.value, action: () => { editingConnectionId.value = selectedConnectionId.value } },
+  connect: { id: 'connect', label: t('toolbar.connect'), icon: 'play', tone: 'start', separatorBefore: true, disabled: !hasConnection.value || isConnected.value || isReconnecting.value, action: () => run(connectMaster) },
+  disconnect: { id: 'disconnect', label: isReconnecting.value ? t('toolbar.cancelReconnect') : t('toolbar.disconnect'), icon: 'stop', tone: 'stop', disabled: !hasConnection.value || isDisconnected.value, action: () => run(disconnectMaster) },
+  remove: { id: 'delete-connection', label: t('toolbar.deleteConnection'), tone: 'danger', separatorBefore: true, disabled: !hasConnection.value, action: () => run(deleteMaster) },
+  newScanGroup: { id: 'new-scan-group', label: t('toolbar.newScanGroup'), icon: 'add', disabled: !hasConnection.value, action: () => { showNewScanGroup.value = true } },
+  startPolling: { id: 'start-polling', label: t('toolbar.startPolling'), icon: 'play', tone: 'start', separatorBefore: true, disabled: !hasConnection.value || !isConnected.value, action: () => run(startAllPolling) },
+  stopPolling: { id: 'stop-polling', label: t('toolbar.stopPolling'), icon: 'stop', tone: 'stop', disabled: !hasConnection.value || !isConnected.value, action: () => run(stopAllPolling) },
+  write: { id: 'write', label: t('toolbar.write'), icon: 'write', separatorBefore: true, disabled: !hasConnection.value || !isConnected.value, action: () => { showWriteModal.value = true } },
+  scan: { id: 'scan', label: t('toolbar.scan'), icon: 'scan', disabled: !hasConnection.value || !isConnected.value, action: () => { showScanDialog.value = true } },
+}) satisfies Record<string, ToolbarAction>)
+const menus = computed<ToolbarMenuDefinition[]>(() => [
+  { id: 'file', label: t('toolbar.menuFile'), items: [actions.value.open, actions.value.save, actions.value.saveAs] },
+  { id: 'connection', label: t('toolbar.menuConnection'), items: [
+    actions.value.newConnection, actions.value.settings, actions.value.connect, actions.value.disconnect, actions.value.remove,
+  ] },
+  { id: 'polling', label: t('toolbar.menuPolling'), items: [actions.value.newScanGroup, actions.value.startPolling, actions.value.stopPolling] },
+  { id: 'tools', label: t('common.tools'), items: [{ ...actions.value.write, separatorBefore: false }, actions.value.scan] },
+  { id: 'help', label: t('parity.menuHelp'), items: [
+    { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, busy: updateBusy.value, action: manualCheckUpdate },
+  ] },
+])
+const quickActions = computed<ToolbarAction[]>(() => [
+  actions.value.newConnection, actions.value.save, actions.value.connect, actions.value.disconnect,
+  actions.value.startPolling, actions.value.stopPolling,
+])
 </script>
 
 <template>
-  <div class="toolbar">
-    <div class="toolbar-main">
-      <div class="toolbar-group">
-        <button class="toolbar-btn" @click="openProject" :title="t('toolbar.openProjectTitle')">{{ t('toolbar.open') }}</button>
-        <button class="toolbar-btn" @click="saveProject" :title="t('toolbar.saveProjectTitle')">{{ t('common.save') }}</button>
-        <button class="toolbar-btn" @click="saveProjectAs" :title="t('toolbar.saveAsTitle')">{{ t('toolbar.saveAs') }}</button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group">
-        <button class="toolbar-btn" @click="showNewConn = true">
-          <span class="btn-icon">+</span> {{ t('toolbar.newConnection') }}
-        </button>
-        <button class="toolbar-btn" :disabled="!hasConnection() || !isDisconnected()"
-          :title="t('dialog.editConnectionHint')" @click="editingConnectionId = selectedConnectionId">
-          {{ t('parity.connectionSettings') }}
-        </button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group">
-        <button class="toolbar-btn btn-start" :disabled="!hasConnection() || isConnected() || isReconnecting()" @click="connectMaster">
-          {{ t('toolbar.connect') }}
-        </button>
-        <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || isDisconnected()" @click="disconnectMaster">
-          {{ isReconnecting() ? t('toolbar.cancelReconnect') : t('toolbar.disconnect') }}
-        </button>
-        <button class="toolbar-btn btn-close" :disabled="!hasConnection()" @click="deleteMaster">
-          {{ t('common.delete') }}
-        </button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group">
-        <button class="toolbar-btn" :disabled="!hasConnection()" @click="showNewScanGroup = true">
-          <span class="btn-icon">+</span> {{ t('toolbar.addScanGroup') }}
-        </button>
-        <button class="toolbar-btn btn-start" :disabled="!hasConnection() || !isConnected()" @click="startAllPolling">
-          {{ t('toolbar.startAll') }}
-        </button>
-        <button class="toolbar-btn btn-stop" :disabled="!hasConnection() || !isConnected()" @click="stopAllPolling">
-          {{ t('toolbar.stopAll') }}
-        </button>
-      </div>
-
-      <div class="toolbar-divider"></div>
-
-      <div class="toolbar-group">
-        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showWriteModal = true">
-          {{ t('toolbar.write') }}
-        </button>
-        <button class="toolbar-btn" :disabled="!hasConnection() || !isConnected()" @click="showScanDialog = true">
-          {{ t('toolbar.scan') }}
-        </button>
-      </div>
-
-    </div>
-    <div class="toolbar-aside">
-      <button class="toolbar-btn" :disabled="updateBusy" @click="manualCheckUpdate">
-        <span aria-live="polite">{{ updateButtonLabel }}</span>
-      </button>
-      <LangToggle />
-      <VersionBadge />
-      <span class="toolbar-title">{{ t('toolbar.appTitleMaster') }}</span>
-    </div>
-  </div>
+  <AppToolbar :title="t('toolbar.appTitleMaster')" :menus="menus" :actions="quickActions"
+    :busy="busy" :project-path="currentProjectPath" :status="updateBusy ? updateButtonLabel : ''" />
 
   <NewConnectionDialog :show="showNewConn" @close="showNewConn = false" @created="refreshTree" />
   <NewConnectionDialog v-if="editingConnectionId" :show="true" :connection-id="editingConnectionId"
@@ -225,23 +202,3 @@ const hasConnection = () => selectedConnectionId.value !== null
   />
   <ScanDialog v-if="showScanDialog" @close="showScanDialog = false" />
 </template>
-
-<style scoped>
-.toolbar { display: flex; align-items: center; height: 42px; padding: 0 8px; gap: 0; }
-.toolbar-group { display: flex; gap: 2px; }
-.toolbar-divider { width: 1px; height: 20px; background: #313244; margin: 0 6px; }
-.toolbar-btn {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 10px; border: none; background: transparent;
-  color: #cdd6f4; cursor: pointer; border-radius: 4px;
-  font-size: 12px; white-space: nowrap;
-}
-.toolbar-btn:hover:not(:disabled) { background: #313244; }
-.toolbar-btn:disabled { opacity: 0.4; cursor: default; }
-.btn-icon { font-weight: bold; font-size: 14px; }
-.btn-start { color: #a6e3a1; }
-.btn-stop { color: #fab387; }
-.btn-close { color: #f38ba8; }
-.toolbar-aside > * { flex: none; }
-.toolbar-title { font-size: 13px; font-weight: 600; color: #6c7086; padding-right: 8px; }
-</style>

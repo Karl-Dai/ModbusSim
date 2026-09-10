@@ -62,6 +62,9 @@ export { useI18n, type Locale } from './i18n'
 
 export { default as Splitter } from './components/Splitter.vue'
 export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
+export { default as AppToolbar } from './components/AppToolbar.vue'
+export { useProjectShortcuts } from './composables/useProjectShortcuts'
+export type { ToolbarAction, ToolbarMenuDefinition } from './types/toolbar'
 
 export { default as ModalShell } from './components/ModalShell.vue'
 export { vModal } from './directives/modal'

@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import { ToolbarMenu, showPrompt } from 'shared-frontend'
+import { AppToolbar, useProjectShortcuts, showPrompt, type ToolbarAction, type ToolbarMenuDefinition } from 'shared-frontend'
 import ConnectionSettingsDialog from './ConnectionSettingsDialog.vue'
 import ToolsDialog from './ToolsDialog.vue'
 import AboutDialog from './AboutDialog.vue'
-import { computed, onMounted, onBeforeUnmount, ref, inject, type Ref } from 'vue'
+import { computed, ref, inject, type Ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import {
   useI18n,
   useUpdateProgress,
   localizeUpdateError,
-  LangToggle,
-  VersionBadge,
   showAlert,
   showConfirm,
 } from 'shared-frontend'
@@ -32,7 +30,6 @@ const statusText = ref('')
 const showTools = ref(false)
 const showSettings = ref(false)
 const showAbout = ref(false)
-const openMenu = ref<string | null>(null)
 async function run(action: () => unknown) {
   if (busy.value) return
   busy.value = true
@@ -60,13 +57,11 @@ async function openProjectByPath() {
     resetWorkspaceView()
   } catch (error) { await showAlert(String(error)) }
 }
-function keyboard(event: KeyboardEvent) {
-  if (!(event.metaKey || event.ctrlKey) || document.querySelector('[aria-modal="true"]')) return
-  if (event.key.toLowerCase() === 's') { event.preventDefault(); void run(event.shiftKey ? saveProjectAs : saveProject) }
-  if (event.key.toLowerCase() === 'o') { event.preventDefault(); void run(openProject) }
-}
-onMounted(() => window.addEventListener('keydown', keyboard))
-onBeforeUnmount(() => window.removeEventListener('keydown', keyboard))
+const shortcuts = useProjectShortcuts({
+  open: () => run(openProject),
+  save: () => run(saveProject),
+  saveAs: () => run(saveProjectAs),
+})
 const currentProjectPath = ref<string | null>(null)
 const showNewConn = ref(false)
 const showNewSlave = ref(false)
@@ -163,69 +158,54 @@ async function closeConnection() {
 }
 
 
-const menus = computed(() => [
-  { id: 'config', label: t('parity.menuConfig'), items: [
-    { id: 'open', label: t('toolbar.openProjectTitle'), action: () => run(openProject) },
-    { id: 'open-path', label: t('parity.openPath'), action: () => run(openProjectByPath) },
-    { id: 'save', label: t('toolbar.saveProjectTitle'), action: () => run(saveProject) },
-    { id: 'save-as', label: t('toolbar.saveAsTitle'), action: () => run(saveProjectAs) },
+const actions = computed(() => ({
+  open: { id: 'open', label: t('toolbar.openProjectTitle'), shortcut: shortcuts.open, action: () => run(openProject) },
+  openPath: { id: 'open-path', label: t('parity.openPath'), action: () => run(openProjectByPath) },
+  save: { id: 'save', label: t('toolbar.saveProjectTitle'), icon: 'save', shortcut: shortcuts.save, separatorBefore: true, action: () => run(saveProject) },
+  saveAs: { id: 'save-as', label: t('toolbar.saveAsTitle'), shortcut: shortcuts.saveAs, action: () => run(saveProjectAs) },
+  newConnection: { id: 'new-connection', label: t('toolbar.newConnection'), icon: 'add', action: () => { showNewConn.value = true } },
+  newSlave: { id: 'new-slave', label: t('toolbar.newSlave'), icon: 'device', disabled: !selectedConnectionId.value, action: () => { showNewSlave.value = true } },
+  start: { id: 'start', label: t('toolbar.start'), icon: 'play', tone: 'start', separatorBefore: true, disabled: !selectedConnectionId.value || selectedConnectionState.value === 'Running', action: () => run(startConnection) },
+  stop: { id: 'stop', label: t('toolbar.stop'), icon: 'stop', tone: 'stop', disabled: !selectedConnectionId.value || selectedConnectionState.value === 'Stopped', action: () => run(stopConnection) },
+  startAll: { id: 'start-all', label: t('toolbar.startAllConnections'), separatorBefore: true, action: () => run(() => changeAll('start')) },
+  stopAll: { id: 'stop-all', label: t('toolbar.stopAllConnections'), action: () => run(() => changeAll('stop')) },
+  settings: { id: 'connection-settings', label: t('parity.connectionSettings'), separatorBefore: true, disabled: !selectedConnectionId.value, action: () => { showSettings.value = true } },
+  remove: { id: 'close-connection', label: t('toolbar.deleteConnection'), tone: 'danger', separatorBefore: true, disabled: !selectedConnectionId.value, action: () => run(closeConnection) },
+  simulation: { id: 'simulation', label: t('simulationSettings.open'), disabled: selectedSlaveId.value === null, separatorBefore: true, action: registerActions.simulation },
+}) satisfies Record<string, ToolbarAction>)
+const menus = computed<ToolbarMenuDefinition[]>(() => [
+  { id: 'file', label: t('toolbar.menuFile'), items: [actions.value.open, actions.value.openPath, actions.value.save, actions.value.saveAs] },
+  { id: 'connection', label: t('toolbar.menuConnection'), items: [
+    actions.value.newConnection, actions.value.newSlave, actions.value.settings,
+    actions.value.start, actions.value.stop, actions.value.startAll, actions.value.stopAll, actions.value.remove,
   ] },
-  { id: 'new', label: t('parity.menuNew'), items: [
-    { id: 'new-connection', label: t('toolbar.newConnection'), action: () => { showNewConn.value = true } },
-    { id: 'new-slave', label: t('toolbar.newSlave'), disabled: !selectedConnectionId.value, action: () => { showNewSlave.value = true } },
-  ] },
-])
-const secondaryMenus = computed(() => [
   { id: 'registers', label: t('parity.menuRegisters'), items: [
     { id: 'import-csv', label: t('parity.importCsv'), disabled: selectedSlaveId.value === null || selectedConnectionState.value !== 'Stopped', action: registerActions.importCsv },
     { id: 'export-csv', label: t('parity.exportCsv'), disabled: selectedSlaveId.value === null, action: registerActions.exportCsv },
     { id: 'csv-template', label: t('parity.csvTemplate'), action: registerActions.template },
-  ] },
-  { id: 'settings', label: t('parity.menuSettings'), items: [
-    { id: 'connection-settings', label: t('parity.connectionSettings'), disabled: !selectedConnectionId.value, action: () => { showSettings.value = true } },
-    { id: 'simulation', label: t('simulationSettings.open'), disabled: selectedSlaveId.value === null, action: registerActions.simulation },
-    { id: 'close-connection', label: t('toolbar.closeConnection'), disabled: !selectedConnectionId.value, action: () => run(closeConnection) },
+    actions.value.simulation,
   ] },
   { id: 'tools', label: t('common.tools'), items: [
     { id: 'tools-dialog', label: t('parity.toolsTitle'), action: () => { showTools.value = true } },
   ] },
   { id: 'help', label: t('parity.menuHelp'), items: [
-    { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, action: manualCheckUpdate },
+    { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, busy: updateBusy.value, action: manualCheckUpdate },
     { id: 'about', label: t('about.title'), action: () => { showAbout.value = true } },
   ] },
 ])
+const quickActions = computed<ToolbarAction[]>(() => [
+  actions.value.newConnection, actions.value.newSlave, actions.value.save, actions.value.start, actions.value.stop,
+])
+const toolbarStatus = computed(() => updateBusy.value ? updateButtonLabel.value : statusText.value)
 </script>
 
 
 <template>
-  <div class="toolbar slave-toolbar" :aria-busy="busy">
-    <div class="toolbar-main">
-      <ToolbarMenu v-for="menu in menus" :key="menu.id" v-bind="menu" :open="openMenu === menu.id" :disabled="busy" @toggle="openMenu = openMenu === menu.id ? null : menu.id" @close="openMenu = null" />
-      <div class="toolbar-divider" aria-hidden="true" />
-      <div class="toolbar-group" :aria-label="t('parity.currentConnection')">
-        <button class="toolbar-btn btn-start" :disabled="busy || !selectedConnectionId || selectedConnectionState === 'Running'" @click="run(startConnection)">{{ t('toolbar.start') }}</button>
-        <button class="toolbar-btn btn-stop" :disabled="busy || !selectedConnectionId || selectedConnectionState === 'Stopped'" @click="run(stopConnection)">{{ t('toolbar.stop') }}</button>
-      </div>
-      <div class="toolbar-divider" aria-hidden="true" />
-      <button class="toolbar-btn btn-start" :disabled="busy" @click="run(() => changeAll('start'))">{{ t('parity.startAll') }}</button>
-      <button class="toolbar-btn btn-stop" :disabled="busy" @click="run(() => changeAll('stop'))">{{ t('parity.stopAll') }}</button>
-      <div class="toolbar-divider" aria-hidden="true" />
-      <ToolbarMenu v-for="menu in secondaryMenus.slice(0, 3)" :key="menu.id" v-bind="menu" :open="openMenu === menu.id" :disabled="busy" @toggle="openMenu = openMenu === menu.id ? null : menu.id" @close="openMenu = null" />
-    </div>
-    <div class="toolbar-aside">
-      <span class="operation-status" role="status">{{ statusText }}</span>
-      <ToolbarMenu v-bind="secondaryMenus[3]" :open="openMenu === 'help'" :disabled="busy" @toggle="openMenu = openMenu === 'help' ? null : 'help'" @close="openMenu = null" />
-      <LangToggle /><VersionBadge />
-    </div>
-  </div>
+  <AppToolbar :title="t('toolbar.appTitleSlave')" :menus="menus" :actions="quickActions"
+    :busy="busy" :project-path="currentProjectPath" :status="toolbarStatus" />
   <NewConnectionDialog :show="showNewConn" @close="showNewConn = false" @created="refreshTree" />
   <NewSlaveDialog :show="showNewSlave" :connection-id="selectedConnectionId" @close="showNewSlave = false" @created="refreshTree" />
   <ConnectionSettingsDialog v-if="showSettings && selectedConnectionId" :connection-id="selectedConnectionId" @saved="refreshTree" @close="showSettings = false" />
   <ToolsDialog v-if="showTools" @close="showTools = false" />
   <AboutDialog v-if="showAbout" @close="showAbout = false" />
 </template>
-<style scoped>
-.slave-toolbar :deep(.toolbar-btn) { padding: 5px 7px; }
-.operation-status { color: var(--c-subtext0); font-size: 11px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 1100px) { .operation-status { display: none; } }
-</style>

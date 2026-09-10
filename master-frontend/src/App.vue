@@ -171,7 +171,7 @@ body {
 .app-layout {
   display: grid;
   grid-template-columns: 260px 1fr 280px;
-  grid-template-rows: 42px 1fr 32px;
+  grid-template-rows: auto minmax(0, 1fr) 32px;
   grid-template-areas:
     "toolbar toolbar toolbar"
     "tree content panel"
@@ -181,7 +181,7 @@ body {
 }
 
 .app-layout.log-expanded {
-  grid-template-rows: 42px 1fr 200px;
+  grid-template-rows: auto minmax(0, 1fr) 200px;
 }
 
 .toolbar-area {

@@ -143,7 +143,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeWorkspace); c
 <template>
   <div class="app-layout" :style="{
     gridTemplateColumns: `${treeWidth}px 4px minmax(240px, 1fr) 4px ${panelWidth}px`,
-    gridTemplateRows: `42px minmax(0, 1fr) ${logExpanded ? '4px' : '0px'} ${logExpanded ? logHeight + 'px' : '32px'}`,
+    gridTemplateRows: `auto minmax(0, 1fr) ${logExpanded ? '4px' : '0px'} ${logExpanded ? logHeight + 'px' : '32px'}`,
   }">
     <header class="toolbar-area">
       <Toolbar />
