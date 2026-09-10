@@ -8,6 +8,31 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.4] - 2026-09-10
+
+### Highlights / 亮点
+
+- 修复 macOS 加载 PEM 客户端证书时重复导入私钥、提示钥匙串条目已存在的问题。 / Fix duplicate private-key imports when loading PEM client certificates on macOS.
+- 新增明确的旧设备证书兼容选项，支持缺少 EKU/SAN 的测试设备；默认保留严格验证。 / Provide explicit legacy-certificate compatibility for test devices without EKU/SAN while retaining strict verification by default.
+- TLS 连接支持从站 ID 和寄存器扫描，保留分块、请求间隔、进度、取消及原从站 ID。 / Support slave-ID and register scans over TLS with chunking, pacing, progress, cancellation and preserved unit IDs.
+- 主站与从站共用菜单栏和快捷操作；主站可编辑已有连接设置而保留扫描组。 / Share menus and quick actions between both apps, and edit existing master connection settings without losing scan groups.
+
+### Fixed 修复
+
+- PEM 证书链与私钥分别传给 TLS 库，避免 macOS 临时钥匙串重复导入相同私钥。/ Pass PEM chains and private keys separately to the TLS library to avoid duplicate imports into macOS temporary keychains.
+- 扫描不再要求普通 TCP 专用上下文，统一通过当前连接的传输读取；TLS 读写采用调用者指定的超时时间。/ Discovery no longer requires a plain-TCP context; scans read through the active transport, and TLS operations apply the caller's timeout.
+- 修复工具栏和表格布局，增强窄窗口、菜单定位及键盘交互。/ Correct toolbar and table layouts and improve narrow-window behavior, menu positioning and keyboard interaction.
+
+### Changed 改进
+
+- 主站“连接设置”可在断开后修改目标、证书、串口、请求与重连参数，并保留连接及扫描组。/ Master connection settings can edit endpoints, certificates, serial parameters, request limits and reconnect options while disconnected, preserving the connection and its scan groups.
+- 两端共用菜单栏、快捷按钮、项目名称与操作状态；支持方向键跨菜单导航、焦点恢复以及统一工程快捷键。/ Both apps share menus, quick actions, project names and operation status, with cross-menu arrow navigation, focus restoration and common project shortcuts.
+- 旧设备证书兼容模式仅对明确启用的连接生效；连接仍使用 TLS 加密，但跳过服务器证书和地址验证。/ Legacy compatibility is an explicit per-connection option: traffic stays TLS-encrypted, but server certificate and hostname verification are skipped.
+
+### Tests 测试
+
+- 317 项 Rust 测试、41 项前端测试通过，覆盖 PEM 重复加载、旧证书严格拒绝与兼容连接、TLS 扫描、取消、从站 ID 保持和菜单交互。/ 317 Rust tests and 41 frontend tests pass, covering repeated PEM loading, strict rejection and compatible connections for legacy certificates, TLS scans, cancellation, preserved unit IDs and menu interaction.
+
 ## [0.17.3] - 2026-09-09
 
 ### Highlights / 亮点
