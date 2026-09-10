@@ -47,6 +47,7 @@ pub struct TlsConfig {
     pub key_file: String,
     pub pkcs12_file: String,
     pub pkcs12_password: String,
+    /// Opt-in legacy compatibility: skip server certificate and hostname verification.
     pub accept_invalid_certs: bool,
 }
 

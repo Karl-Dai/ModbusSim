@@ -315,10 +315,15 @@ impl MasterConnection {
         }
     }
 
-    /// Get a handle to the TCP context for external use (e.g., scanning).
-    /// Returns an error for non-TCP transports.
+    /// Get the raw TCP context for transport-specific legacy callers.
+    /// Use `get_scan_context` for discovery across all connected transports.
     pub fn get_ctx_handle(&self) -> Result<Arc<Mutex<client::Context>>, MasterError> {
         self.get_tcp_ctx()
+    }
+
+    /// Clone the active transport for discovery without holding the application lock.
+    pub fn get_scan_context(&self) -> Result<ScanContext, MasterError> {
+        self.get_transport_ctx().map(ScanContext)
     }
 
     pub fn request_pacer(&self) -> RequestPacer {
@@ -917,14 +922,16 @@ async fn execute_read_batched(
 /// Execute a read via TCP tokio_modbus context.
 async fn execute_read_tcp(
     ctx: &Arc<Mutex<client::Context>>,
-    slave_id: u8,
+    slave_id: Option<u8>,
     function: ReadFunction,
     start_address: u16,
     quantity: u16,
     timeout: Duration,
 ) -> Result<ReadResult, MasterError> {
     let mut ctx = ctx.lock().await;
-    ctx.set_slave(Slave(slave_id));
+    if let Some(id) = slave_id {
+        ctx.set_slave(Slave(id));
+    }
     match function {
         ReadFunction::ReadCoils => {
             let data = tokio::time::timeout(timeout, ctx.read_coils(start_address, quantity))
@@ -977,7 +984,7 @@ async fn execute_read_any(
         TransportCtx::Tcp(tcp_ctx) => {
             execute_read_tcp(
                 tcp_ctx,
-                slave_id,
+                Some(slave_id),
                 function,
                 start_address,
                 quantity,
@@ -1037,6 +1044,56 @@ pub enum MasterError {
 // Scanning
 // ---------------------------------------------------------------------------
 
+/// Opaque handle to the connected transport used by discovery scans.
+/// TCP callers can still pass their existing context to the paced scan APIs.
+#[derive(Clone)]
+pub struct ScanContext(TransportCtx);
+
+impl From<Arc<Mutex<client::Context>>> for ScanContext {
+    fn from(ctx: Arc<Mutex<client::Context>>) -> Self {
+        Self(TransportCtx::Tcp(ctx))
+    }
+}
+
+impl ScanContext {
+    async fn read(
+        &self,
+        slave_id: Option<u8>,
+        function: ReadFunction,
+        address: u16,
+        quantity: u16,
+        timeout: Duration,
+    ) -> Result<ReadResult, MasterError> {
+        match &self.0 {
+            TransportCtx::Tcp(ctx) => {
+                execute_read_tcp(ctx, slave_id, function, address, quantity, timeout).await
+            }
+            transport => {
+                execute_read_any(
+                    transport,
+                    slave_id.ok_or_else(|| {
+                        MasterError::InvalidConfig(
+                            "slave ID required for this scan transport".into(),
+                        )
+                    })?,
+                    function,
+                    address,
+                    quantity,
+                    timeout,
+                )
+                .await
+            }
+        }
+    }
+
+    async fn restore_slave_id(&self, slave_id: u8) {
+        // Other transports encode the unit ID into every request independently.
+        if let TransportCtx::Tcp(ctx) = &self.0 {
+            ctx.lock().await.set_slave(Slave(slave_id));
+        }
+    }
+}
+
 /// Progress report for slave ID scanning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlaveIdScanProgress {
@@ -1090,7 +1147,7 @@ pub async fn scan_slave_ids_with_ctx(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn scan_slave_ids_paced(
-    ctx: Arc<Mutex<client::Context>>,
+    ctx: impl Into<ScanContext>,
     original_slave_id: u8,
     start_id: u8,
     end_id: u8,
@@ -1099,6 +1156,7 @@ pub async fn scan_slave_ids_paced(
     mut cancel_rx: oneshot::Receiver<()>,
     progress_tx: mpsc::Sender<SlaveIdScanProgress>,
 ) -> Vec<u8> {
+    let ctx = ctx.into();
     let mut found_ids: Vec<u8> = Vec::new();
     let mut cancelled = false;
     let total = end_id.saturating_sub(start_id) as u16 + 1;
@@ -1117,12 +1175,15 @@ pub async fn scan_slave_ids_paced(
                 _ = cancellation_signal(&mut cancel_rx) => { cancelled = true; break; },
                 permit = pacer.acquire() => permit,
             };
-            let mut ctx = ctx.lock().await;
-            ctx.set_slave(Slave(id));
-            matches!(
-                tokio::time::timeout(scan_timeout, ctx.read_holding_registers(0, 1)).await,
-                Ok(Ok(Ok(_)))
+            ctx.read(
+                Some(id),
+                ReadFunction::ReadHoldingRegisters,
+                0,
+                1,
+                scan_timeout,
             )
+            .await
+            .is_ok()
         };
 
         if found {
@@ -1141,10 +1202,7 @@ pub async fn scan_slave_ids_paced(
     }
 
     // Restore original slave ID
-    {
-        let mut ctx = ctx.lock().await;
-        ctx.set_slave(Slave(original_slave_id));
-    }
+    ctx.restore_slave_id(original_slave_id).await;
 
     // Send final done
     let _ = progress_tx
@@ -1189,7 +1247,7 @@ pub async fn scan_registers_with_ctx(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn scan_registers_paced(
-    ctx: Arc<Mutex<client::Context>>,
+    ctx: impl Into<ScanContext>,
     slave_id: Option<u8>,
     function: ReadFunction,
     start_address: u16,
@@ -1200,6 +1258,7 @@ pub async fn scan_registers_paced(
     mut cancel_rx: oneshot::Receiver<()>,
     progress_tx: mpsc::Sender<RegisterScanProgress>,
 ) -> Vec<FoundRegister> {
+    let ctx = ctx.into();
     let mut found: Vec<FoundRegister> = Vec::new();
     let mut cancelled = false;
     let mut addr = u32::from(start_address);
@@ -1224,55 +1283,17 @@ pub async fn scan_registers_paced(
                 _ = cancellation_signal(&mut cancel_rx) => { cancelled = true; break; },
                 permit = pacer.acquire() => permit,
             };
-            let mut ctx = ctx.lock().await;
-            if let Some(id) = slave_id {
-                ctx.set_slave(Slave(id));
-            }
-            let read_fut = match function {
-                ReadFunction::ReadCoils => {
-                    let f = ctx.read_coils(addr as u16, qty);
-                    tokio::time::timeout(scan_timeout, f)
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .and_then(|r| r.ok())
-                        .map(|vals| {
-                            vals.iter()
-                                .map(|&b| if b { 1u16 } else { 0u16 })
-                                .collect::<Vec<_>>()
-                        })
-                }
-                ReadFunction::ReadDiscreteInputs => {
-                    let f = ctx.read_discrete_inputs(addr as u16, qty);
-                    tokio::time::timeout(scan_timeout, f)
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .and_then(|r| r.ok())
-                        .map(|vals| {
-                            vals.iter()
-                                .map(|&b| if b { 1u16 } else { 0u16 })
-                                .collect::<Vec<_>>()
-                        })
-                }
-                ReadFunction::ReadHoldingRegisters => {
-                    let f = ctx.read_holding_registers(addr as u16, qty);
-                    tokio::time::timeout(scan_timeout, f)
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .and_then(|r| r.ok())
-                }
-                ReadFunction::ReadInputRegisters => {
-                    let f = ctx.read_input_registers(addr as u16, qty);
-                    tokio::time::timeout(scan_timeout, f)
-                        .await
-                        .ok()
-                        .and_then(|r| r.ok())
-                        .and_then(|r| r.ok())
-                }
-            };
-            read_fut
+            ctx.read(slave_id, function, addr as u16, qty, scan_timeout)
+                .await
+                .ok()
+                .map(|result| match result {
+                    ReadResult::Coils(values) | ReadResult::DiscreteInputs(values) => {
+                        values.into_iter().map(u16::from).collect()
+                    }
+                    ReadResult::HoldingRegisters(values) | ReadResult::InputRegisters(values) => {
+                        values
+                    }
+                })
         };
 
         if let Some(values) = result {

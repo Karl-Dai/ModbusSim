@@ -284,6 +284,10 @@ async function submit() {
               <input type="checkbox" v-model="useTls" /> {{ t('dialog.enableTls') }}
             </label>
             <template v-if="useTls">
+              <label class="form-label checkbox-label">
+                <input type="checkbox" v-model="tlsAcceptInvalidCerts" aria-describedby="tls-compatibility-hint" /> {{ t('dialog.acceptInvalidCerts') }}
+              </label>
+              <div id="tls-compatibility-hint" class="form-hint">{{ t('dialog.tlsCompatibilityHint') }}</div>
               <label class="form-label">
                 {{ t('dialog.caFile') }}
                 <div class="file-row">
@@ -316,9 +320,7 @@ async function submit() {
                 {{ t('dialog.pkcs12Password') }}
                 <input v-model="tlsPkcs12Password" class="form-input" type="password" :placeholder="t('dialog.passwordPlaceholder')" />
               </label>
-              <label class="form-label">
-                <input type="checkbox" v-model="tlsAcceptInvalidCerts" /> {{ t('dialog.acceptInvalidCerts') }}
-              </label>
+
             </template>
           </template>
           <template v-if="form.transport === 'rtu' || form.transport === 'ascii'">

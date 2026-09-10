@@ -1211,7 +1211,10 @@ pub async fn start_slave_id_scan(
         let cs = conns
             .get(&connection_id)
             .ok_or_else(|| format!("connection {} not found", connection_id))?;
-        let ctx = cs.connection.get_ctx_handle().map_err(|e| e.to_string())?;
+        let ctx = cs
+            .connection
+            .get_scan_context()
+            .map_err(|e| e.to_string())?;
         (
             ctx,
             cs.connection.config.slave_id,
@@ -1306,7 +1309,9 @@ pub async fn start_register_scan(
         };
         chunk_size = chunk_size.clamp(1, limit);
         (
-            cs.connection.get_ctx_handle().map_err(|e| e.to_string())?,
+            cs.connection
+                .get_scan_context()
+                .map_err(|e| e.to_string())?,
             cs.connection.config.slave_id,
             cs.connection.request_pacer(),
         )

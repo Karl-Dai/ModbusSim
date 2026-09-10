@@ -206,6 +206,9 @@ async fn test_tls_read_holding_registers() {
     };
     let device = SlaveDevice::with_default_registers(1, "TLS Device", 10);
     slave.add_device(device).await.unwrap();
+    let mut second = SlaveDevice::with_default_registers(2, "Second TLS device", 10);
+    second.register_map.write_holding_register(0, 77);
+    slave.add_device(second).await.unwrap();
     slave.start().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
@@ -264,6 +267,87 @@ async fn test_tls_read_holding_registers() {
         }
         _ => panic!("unexpected result type"),
     }
+
+    // Exercise the same transport handle used by the application's two scans.
+    use modbussim_core::master::{scan_registers_paced, scan_slave_ids_paced};
+    use std::time::Duration;
+    use tokio::sync::{mpsc, oneshot};
+    for function in [
+        ReadFunction::ReadCoils,
+        ReadFunction::ReadDiscreteInputs,
+        ReadFunction::ReadHoldingRegisters,
+        ReadFunction::ReadInputRegisters,
+    ] {
+        let (_cancel, cancel_rx) = oneshot::channel();
+        let (progress_tx, mut progress_rx) = mpsc::channel(16);
+        let found = scan_registers_paced(
+            master.get_scan_context().unwrap(),
+            Some(1),
+            function,
+            0,
+            4,
+            2,
+            Duration::from_secs(1),
+            master.request_pacer(),
+            cancel_rx,
+            progress_tx,
+        )
+        .await;
+        assert_eq!(
+            found.iter().map(|r| r.address).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4]
+        );
+        if matches!(function, ReadFunction::ReadHoldingRegisters) {
+            assert_eq!(found[0].value, 42);
+        }
+        let mut progress = Vec::new();
+        while let Ok(update) = progress_rx.try_recv() {
+            progress.push(update);
+        }
+        assert!(progress.last().unwrap().done);
+        assert_eq!(progress.last().unwrap().found_registers.len(), 5);
+    }
+    let (_cancel, cancel_rx) = oneshot::channel();
+    let (progress_tx, _progress_rx) = mpsc::channel(16);
+    let ids = scan_slave_ids_paced(
+        master.get_scan_context().unwrap(),
+        1,
+        1,
+        2,
+        Duration::from_secs(1),
+        master.request_pacer(),
+        cancel_rx,
+        progress_tx,
+    )
+    .await;
+    assert_eq!(ids, vec![1, 2]);
+    // Scanning another unit must not change the original connection's unit.
+    match master
+        .read(ReadFunction::ReadHoldingRegisters, 0, 1)
+        .await
+        .unwrap()
+    {
+        ReadResult::HoldingRegisters(values) => assert_eq!(values, vec![42]),
+        value => panic!("Unexpected result: {value:?}"),
+    }
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    cancel_tx.send(()).unwrap();
+    let (progress_tx, mut progress_rx) = mpsc::channel(16);
+    let found = scan_registers_paced(
+        master.get_scan_context().unwrap(),
+        Some(1),
+        ReadFunction::ReadHoldingRegisters,
+        0,
+        4,
+        2,
+        Duration::from_secs(1),
+        master.request_pacer(),
+        cancel_rx,
+        progress_tx,
+    )
+    .await;
+    assert!(found.is_empty());
+    assert!(progress_rx.recv().await.unwrap().cancelled);
 
     assert_eq!(slave.clients.list().len(), 1);
     assert!(slave.clients.list()[0]
@@ -358,4 +442,155 @@ async fn test_tls_accept_invalid_certs() {
     .expect("TLS client must disappear after disconnect");
     slave.stop().await.unwrap();
     assert!(slave.clients.list().is_empty());
+}
+
+#[test]
+fn test_pem_client_identity_loads_repeatedly() {
+    let (ca_pem, ca_cert, ca_key) = gen_ca();
+    let (client_cert, client_key) = gen_leaf_cert(&["modbus-test-client"], &ca_cert, &ca_key);
+    let mut chain_pem = client_cert.to_pem().unwrap();
+    chain_pem.extend_from_slice(&ca_pem);
+    let cert_file = write_temp_file(&chain_pem);
+    let key_file = write_temp_file(&client_key.private_key_to_pem_pkcs8().unwrap());
+    let config = TlsConfig {
+        enabled: true,
+        cert_file: cert_file.path().to_string_lossy().into_owned(),
+        key_file: key_file.path().to_string_lossy().into_owned(),
+        ..Default::default()
+    };
+
+    // Keep all connectors alive: reconnects and separate connections may share
+    // certificate files, and must not double-import the private key on macOS.
+    let mut connectors = Vec::new();
+    for _ in 0..3 {
+        connectors.push(
+            modbussim_core::tls_master::build_tls_connector(&config)
+                .expect("PEM certificate chain and key must import separately"),
+        );
+    }
+}
+
+/// Reproduce an industrial endpoint with a v1 certificate: no EKU or SAN,
+/// and a CN that does not match the connection's IP address.
+#[tokio::test]
+async fn test_legacy_certificate_requires_explicit_compatibility() {
+    use openssl::{
+        asn1::Asn1Time, hash::MessageDigest, pkey::PKey, rsa::Rsa, x509::X509NameBuilder,
+    };
+    use std::time::Duration;
+
+    let (ca_pem, ca_cert, ca_key) = gen_ca();
+    let key = PKey::from_rsa(Rsa::generate(2048).unwrap()).unwrap();
+    let mut name = X509NameBuilder::new().unwrap();
+    name.append_entry_by_text("CN", "Legacy Server").unwrap();
+    let mut cert = openssl::x509::X509::builder().unwrap();
+    cert.set_version(0).unwrap();
+    cert.set_serial_number(
+        &openssl::bn::BigNum::from_u32(1)
+            .unwrap()
+            .to_asn1_integer()
+            .unwrap(),
+    )
+    .unwrap();
+    cert.set_subject_name(&name.build()).unwrap();
+    cert.set_issuer_name(ca_cert.subject_name()).unwrap();
+    cert.set_pubkey(&key).unwrap();
+    cert.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+        .unwrap();
+    cert.set_not_after(&Asn1Time::days_from_now(365).unwrap())
+        .unwrap();
+    cert.sign(&ca_key, MessageDigest::sha256()).unwrap();
+    let cert = cert.build();
+    assert!(cert.subject_alt_names().is_none());
+    let identity =
+        native_tls::Identity::from_pkcs12(&make_pkcs12(&cert, &key, &ca_cert), "password").unwrap();
+    let acceptor = native_tls::TlsAcceptor::builder(identity)
+        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+        .build()
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let mut completed = 0;
+        for _ in 0..2 {
+            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let acceptor = acceptor.clone();
+            completed += tokio::task::spawn_blocking(move || {
+                let stream = stream.into_std().unwrap();
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let Ok(mut stream) = acceptor.accept(stream) else {
+                    return 0;
+                };
+                let Ok((header, request)) = modbussim_core::mbap::read_frame(&mut stream) else {
+                    return 0;
+                };
+                assert_eq!(request, [3, 0, 0, 0, 1]);
+                modbussim_core::mbap::write_frame(
+                    &mut stream,
+                    header.transaction_id,
+                    header.unit_id,
+                    &[3, 2, 0, 42],
+                )
+                .unwrap();
+                1
+            })
+            .await
+            .unwrap();
+        }
+        completed
+    });
+
+    let ca_file = write_temp_file(&ca_pem);
+    let mut config = MasterConfig {
+        target_address: "127.0.0.1".into(),
+        port,
+        tls: TlsConfig {
+            enabled: true,
+            ca_file: ca_file.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(!config.tls.accept_invalid_certs);
+    let transport = Transport::TcpTls {
+        host: "127.0.0.1".into(),
+        port,
+    };
+    let mut strict = MasterConnection::new(config.clone(), transport.clone());
+    assert!(
+        strict.connect().await.is_err(),
+        "Strict mode must reject the legacy certificate"
+    );
+
+    config.tls.accept_invalid_certs = true;
+    let saved = serde_json::to_string(&config.tls).unwrap();
+    assert!(
+        serde_json::from_str::<TlsConfig>(&saved)
+            .unwrap()
+            .accept_invalid_certs
+    );
+    let mut compatible = MasterConnection::new(config, transport);
+    compatible
+        .connect()
+        .await
+        .expect("Explicit compatibility should allow the legacy endpoint");
+    match compatible
+        .read(ReadFunction::ReadHoldingRegisters, 0, 1)
+        .await
+        .unwrap()
+    {
+        ReadResult::HoldingRegisters(values) => assert_eq!(values, vec![42]),
+        result => panic!("Unexpected read result: {result:?}"),
+    }
+    compatible.disconnect().await.unwrap();
+    assert_eq!(server.await.unwrap(), 1);
 }

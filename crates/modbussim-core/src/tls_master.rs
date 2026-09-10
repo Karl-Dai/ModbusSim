@@ -20,8 +20,6 @@ use tokio::sync::Mutex;
 pub struct TlsMasterConnection {
     stream: Arc<Mutex<native_tls::TlsStream<std::net::TcpStream>>>,
     transaction_id: AtomicU16,
-    /// Timeout configured at connection time (applied once to the underlying TCP socket).
-    _configured_timeout: Duration,
 }
 
 impl TlsMasterConnection {
@@ -30,14 +28,27 @@ impl TlsMasterConnection {
     }
 
     /// Core send/receive over TLS. Runs in spawn_blocking because native_tls is sync.
-    /// Timeouts are set once at connection time (see `connect_tls`).
-    async fn send_receive(&self, slave_id: u8, pdu: &[u8]) -> Result<Vec<u8>, MasterError> {
+    /// Apply the caller timeout while holding the stream lock, including for scans.
+    async fn send_receive(
+        &self,
+        slave_id: u8,
+        pdu: &[u8],
+        timeout: Duration,
+    ) -> Result<Vec<u8>, MasterError> {
         let stream = self.stream.clone();
         let tid = self.next_transaction_id();
         let pdu = pdu.to_vec();
 
         tokio::task::spawn_blocking(move || {
             let mut stream = stream.blocking_lock();
+            stream
+                .get_ref()
+                .set_read_timeout(Some(timeout))
+                .map_err(|e| MasterError::Transport(format!("set TLS read timeout: {e}")))?;
+            stream
+                .get_ref()
+                .set_write_timeout(Some(timeout))
+                .map_err(|e| MasterError::Transport(format!("set TLS write timeout: {e}")))?;
 
             // Write MBAP frame
             mbap::write_frame(&mut *stream, tid, slave_id, &pdu)
@@ -60,10 +71,10 @@ impl TlsMasterConnection {
         function: ReadFunction,
         start_address: u16,
         quantity: u16,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<ReadResult, MasterError> {
         let pdu = build_read_pdu(function, start_address, quantity);
-        let resp = self.send_receive(slave_id, &pdu).await?;
+        let resp = self.send_receive(slave_id, &pdu, timeout).await?;
         parse_read_response_pdu(function, &resp)
     }
 
@@ -73,13 +84,13 @@ impl TlsMasterConnection {
         slave_id: u8,
         address: u16,
         value: bool,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<(), MasterError> {
         let coil_value: u16 = if value { 0xFF00 } else { 0x0000 };
         let mut pdu = vec![0x05];
         pdu.extend_from_slice(&address.to_be_bytes());
         pdu.extend_from_slice(&coil_value.to_be_bytes());
-        let resp = self.send_receive(slave_id, &pdu).await?;
+        let resp = self.send_receive(slave_id, &pdu, timeout).await?;
         check_write_response(&resp, 0x05)
     }
 
@@ -89,12 +100,12 @@ impl TlsMasterConnection {
         slave_id: u8,
         address: u16,
         value: u16,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<(), MasterError> {
         let mut pdu = vec![0x06];
         pdu.extend_from_slice(&address.to_be_bytes());
         pdu.extend_from_slice(&value.to_be_bytes());
-        let resp = self.send_receive(slave_id, &pdu).await?;
+        let resp = self.send_receive(slave_id, &pdu, timeout).await?;
         check_write_response(&resp, 0x06)
     }
 
@@ -104,7 +115,7 @@ impl TlsMasterConnection {
         slave_id: u8,
         address: u16,
         values: &[bool],
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<(), MasterError> {
         let quantity = values.len() as u16;
         let byte_count = values.len().div_ceil(8);
@@ -119,7 +130,7 @@ impl TlsMasterConnection {
         pdu.extend_from_slice(&quantity.to_be_bytes());
         pdu.push(byte_count as u8);
         pdu.extend_from_slice(&coil_bytes);
-        let resp = self.send_receive(slave_id, &pdu).await?;
+        let resp = self.send_receive(slave_id, &pdu, timeout).await?;
         check_write_response(&resp, 0x0F)
     }
 
@@ -129,7 +140,7 @@ impl TlsMasterConnection {
         slave_id: u8,
         address: u16,
         values: &[u16],
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<(), MasterError> {
         let quantity = values.len() as u16;
         let byte_count = (values.len() * 2) as u8;
@@ -140,7 +151,7 @@ impl TlsMasterConnection {
         for v in values {
             pdu.extend_from_slice(&v.to_be_bytes());
         }
-        let resp = self.send_receive(slave_id, &pdu).await?;
+        let resp = self.send_receive(slave_id, &pdu, timeout).await?;
         check_write_response(&resp, 0x10)
     }
 }
@@ -175,16 +186,20 @@ pub fn build_tls_connector(config: &TlsConfig) -> Result<native_tls::TlsConnecto
             .map_err(|e| MasterError::ConnectionFailed(format!("read cert file: {e}")))?;
         let key_pem = std::fs::read(&config.key_file)
             .map_err(|e| MasterError::ConnectionFailed(format!("read key file: {e}")))?;
-        // Concatenate cert + key for PEM identity
-        let mut pem = cert_pem;
-        pem.extend_from_slice(&key_pem);
-        let identity = native_tls::Identity::from_pkcs8(&pem, &key_pem)
+        // native-tls imports the key and certificate chain separately. Including
+        // the key in the certificate input imports it twice on macOS and fails
+        // with errSecDuplicateItem in its temporary keychain.
+        let identity = native_tls::Identity::from_pkcs8(&cert_pem, &key_pem)
             .map_err(|e| MasterError::ConnectionFailed(format!("parse PEM identity: {e}")))?;
         builder.identity(identity);
     }
 
     if config.accept_invalid_certs {
+        // Explicit per-connection legacy-device compatibility: some industrial
+        // endpoints lack EKU/SAN and cannot pass either identity or name checks.
+        // Keep both checks enabled for the default (strict) configuration.
         builder.danger_accept_invalid_certs(true);
+        builder.danger_accept_invalid_hostnames(true);
     }
 
     builder
@@ -232,7 +247,7 @@ pub async fn connect_tls(
     .await
     .map_err(|e| MasterError::ConnectionFailed(format!("spawn_blocking: {e}")))??;
 
-    // Set read/write timeouts once on the underlying TCP stream.
+    // Set initial socket timeouts; requests apply their own timeout under the stream lock.
     let tcp = tls_stream.get_ref();
     tcp.set_read_timeout(Some(timeout))
         .map_err(|e| MasterError::ConnectionFailed(format!("set read timeout: {e}")))?;
@@ -242,6 +257,5 @@ pub async fn connect_tls(
     Ok(TlsMasterConnection {
         stream: Arc::new(Mutex::new(tls_stream)),
         transaction_id: AtomicU16::new(1),
-        _configured_timeout: timeout,
     })
 }
