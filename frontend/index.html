@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // 首帧前按存储的主题预设 data-theme，避免明暗闪烁；与 shared-frontend useTheme 保持一致。
+      ;(function () {
+        var mode = 'auto'
+        try { mode = localStorage.getItem('modbussim.theme') || 'auto' } catch (e) {}
+        var dark =
+          mode === 'dark' ||
+          (mode === 'auto' &&
+            (!window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches))
+        var resolved = dark ? 'dark' : 'light'
+        document.documentElement.dataset.theme = resolved
+        document.documentElement.style.colorScheme = resolved
+      })()
+    </script>
     <title>frontend</title>
   </head>
   <body>

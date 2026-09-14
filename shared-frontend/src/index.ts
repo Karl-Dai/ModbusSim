@@ -11,6 +11,10 @@ export {
   useDialogState,
 } from './composables/useDialog'
 
+// Theme
+export { initTheme, useTheme, THEME_STORAGE_KEY } from './composables/useTheme'
+export type { ThemeMode, ResolvedTheme } from './composables/useTheme'
+
 // Value formatting
 export {
   swapBytes16,
@@ -54,6 +58,7 @@ export type {
 export { default as AppDialog } from './components/AppDialog.vue'
 export { default as LangToggle } from './components/LangToggle.vue'
 export { default as LogPanelShell } from './components/LogPanelShell.vue'
+export { default as ThemeToggle } from './components/ThemeToggle.vue'
 export { default as UpdateDialog } from './components/UpdateDialog.vue'
 export { default as VersionBadge } from './components/VersionBadge.vue'
 

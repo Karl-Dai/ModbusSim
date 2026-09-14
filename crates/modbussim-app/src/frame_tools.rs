@@ -1,85 +1,23 @@
-use modbussim_core::{frame, pdu, tools};
+use crate::frame_explain::{self, Lang};
 
 #[tauri::command]
 pub fn inspect_modbus_frame(
     data: String,
     transport: String,
     direction: String,
+    lang: String,
 ) -> Result<String, String> {
-    let (unit, pdu, header) = match transport.as_str() {
-        "ascii" => {
-            let input = format!("{}\r\n", data.trim());
-            let decoded = frame::decode_ascii(input.as_bytes())?;
-            (decoded.slave_id, decoded.pdu, "ASCII · LRC OK".to_string())
-        }
-        "rtu" => {
-            let bytes = tools::parse_hex_string(&data).map_err(|e| e.to_string())?;
-            let decoded = frame::decode_rtu(&bytes)?;
-            (decoded.slave_id, decoded.pdu, "RTU · CRC16 OK".to_string())
-        }
-        "tcp" => {
-            let bytes = tools::parse_hex_string(&data).map_err(|e| e.to_string())?;
-            if bytes.len() < 8 {
-                return Err("TCP ADU requires at least 8 bytes".into());
-            }
-            let transaction = u16::from_be_bytes([bytes[0], bytes[1]]);
-            let protocol = u16::from_be_bytes([bytes[2], bytes[3]]);
-            let length = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
-            if protocol != 0 || !(2..=254).contains(&length) || bytes.len() != length + 6 {
-                return Err(
-                    "Invalid MBAP protocol/length; paste one complete Modbus TCP ADU".into(),
-                );
-            }
-            (
-                bytes[6],
-                bytes[7..].to_vec(),
-                format!("TCP · Transaction {transaction} · Length {length}"),
-            )
-        }
-        _ => return Err("Unsupported transport".into()),
-    };
-    let fc = *pdu.first().ok_or("Empty PDU")?;
-    let details = match direction.as_str() {
-        "request" => format!(
-            "{:?}",
-            pdu::parse_request_pdu(&pdu).map_err(|e| e.to_string())?
-        ),
-        "response" if fc & 0x80 != 0 && pdu.len() == 2 => format!("Exception: 0x{:02X}", pdu[1]),
-        "response" if (1..=4).contains(&fc) => {
-            if pdu.len() < 2 || pdu.len() != pdu[1] as usize + 2 || (fc >= 3 && pdu[1] % 2 != 0) {
-                return Err("Invalid read response byte count".into());
-            }
-            if fc >= 3 {
-                format!(
-                    "Registers: {:?}",
-                    pdu[2..]
-                        .chunks_exact(2)
-                        .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-                        .collect::<Vec<_>>()
-                )
-            } else {
-                format!("Packed bits: {:02X?}", &pdu[2..])
-            }
-        }
-        "response" if [5, 6, 15, 16].contains(&fc) && pdu.len() == 5 => {
-            format!(
-                "Address: {} · Value/quantity: {}",
-                u16::from_be_bytes([pdu[1], pdu[2]]),
-                u16::from_be_bytes([pdu[3], pdu[4]])
-            )
-        }
-        "response" => return Err("Unsupported or invalid response PDU".into()),
-        _ => return Err("Choose request or response".into()),
-    };
-    Ok(format!(
-        "{header}\nUnit ID: {unit}\nFC: 0x{fc:02X}\n{details}\nPDU: {:02X?}",
-        pdu
-    ))
+    frame_explain::explain(&data, &transport, &direction, Lang::from_code(&lang))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn run(data: &str, transport: &str, direction: &str, lang: &str) -> Result<String, String> {
+        inspect_modbus_frame(data.into(), transport.into(), direction.into(), lang.into())
+    }
+
     #[test]
     fn csv_unsigned_type_names_accept_canonical_and_legacy_spellings() {
         use modbussim_core::register::DataType;
@@ -91,34 +29,79 @@ mod tests {
         }
         assert_eq!(serde_json::to_value(DataType::UInt16).unwrap(), "u_int16");
     }
+
     #[test]
-    fn validates_mbap_and_direction() {
-        let request = "000100000006010300000001";
-        assert!(
-            inspect_modbus_frame(request.into(), "tcp".into(), "request".into())
-                .unwrap()
-                .contains("ReadHoldingRegisters")
-        );
-        assert!(inspect_modbus_frame(request.into(), "tcp".into(), "response".into()).is_err());
-        assert!(inspect_modbus_frame(
-            "000100000007010300000001".into(),
-            "tcp".into(),
-            "request".into()
-        )
-        .is_err());
-        assert!(inspect_modbus_frame(
-            "000100000005010302002A".into(),
-            "tcp".into(),
-            "response".into()
-        )
-        .unwrap()
-        .contains("42"));
-        let valid = frame::encode_rtu(1, &[3, 0, 0, 0, 1]);
+    fn auto_detects_tcp_and_explains_request_in_chinese() {
+        let out = run("00 01 00 00 00 06 01 03 00 00 00 01", "auto", "auto", "zh").unwrap();
+        assert!(out.contains("Modbus TCP"), "{out}");
+        assert!(out.contains("主站向 1 号从站发起「读保持寄存器」：从 40001 开始，读 1 个寄存器"), "{out}");
+    }
+
+    #[test]
+    fn auto_detects_rtu_via_crc() {
+        let out = run("01 03 00 00 00 0A C5 CD", "auto", "auto", "zh").unwrap();
+        assert!(out.contains("Modbus RTU"), "{out}");
+        assert!(out.contains("读 10 个寄存器"), "{out}");
+        assert!(out.contains("CRC16 校验通过"), "{out}");
+    }
+
+    #[test]
+    fn auto_detects_response_direction() {
+        let out = run("00 01 00 00 00 05 01 03 02 00 0A", "auto", "auto", "zh").unwrap();
+        assert!(out.contains("1 号从站回复「读保持寄存器」：40001 = 10（0x000A）"), "{out}");
+    }
+
+    #[test]
+    fn translates_exception_codes() {
+        let out = run("00 01 00 00 00 03 01 83 02", "auto", "auto", "zh").unwrap();
+        assert!(out.contains("1 号从站拒绝了「读保持寄存器」请求：非法数据地址"), "{out}");
+        let en = run("00 01 00 00 00 03 01 83 02", "auto", "auto", "en").unwrap();
+        assert!(en.contains("Illegal data address"), "{en}");
+    }
+
+    #[test]
+    fn mbap_length_mismatch_warns_but_still_parses() {
+        let out = run("00 01 00 00 00 07 01 03 00 00 00 01", "tcp", "auto", "zh").unwrap();
+        assert!(out.contains("长度字段是 7，但实际只收到 6 个字节"), "{out}");
+        assert!(out.contains("读保持寄存器"), "{out}");
+    }
+
+    #[test]
+    fn english_output_uses_english_wording() {
+        let out = run("00 01 00 00 00 06 01 03 00 00 00 01", "auto", "auto", "en").unwrap();
+        assert!(out.contains("Read Holding Registers"), "{out}");
+        assert!(out.contains("slave 1"), "{out}");
+        assert!(out.contains("Byte-by-byte"), "{out}");
+    }
+
+    #[test]
+    fn rtu_crc_failure_warns_but_still_parses() {
+        let out = run("01 03 00 00 00 01 00 00", "rtu", "auto", "zh").unwrap();
+        assert!(out.contains("CRC 校验失败"), "{out}");
+        assert!(out.contains("读保持寄存器"), "{out}");
+        assert!(run("01 03 00 00 00 01 00 00", "auto", "auto", "zh").is_err());
+    }
+
+    #[test]
+    fn rtu_roundtrip_still_works() {
+        let valid = modbussim_core::frame::encode_rtu(1, &[3, 0, 0, 0, 1]);
         let hex = valid.iter().map(|b| format!("{b:02X}")).collect::<String>();
-        assert!(inspect_modbus_frame(hex, "rtu".into(), "request".into()).is_ok());
-        assert!(
-            inspect_modbus_frame("0103000000010000".into(), "rtu".into(), "request".into())
-                .is_err()
-        );
+        assert!(run(&hex, "rtu", "request", "zh").is_ok());
+    }
+
+    #[test]
+    fn write_single_coil_summary_is_human_readable() {
+        let out = run("00 02 00 00 00 06 01 05 00 00 FF 00", "tcp", "request", "zh").unwrap();
+        assert!(out.contains("把线圈 00001 设为 ON"), "{out}");
+    }
+
+    #[test]
+    fn ascii_frames_get_the_same_treatment() {
+        let frame = modbussim_core::frame::encode_ascii(1, &[3, 0, 0, 0, 1]);
+        let text = String::from_utf8(frame).unwrap();
+        let out = run(text.trim(), "ascii", "request", "zh").unwrap();
+        assert!(out.contains("Modbus ASCII"), "{out}");
+        assert!(out.contains("读保持寄存器"), "{out}");
+        assert!(out.contains("LRC 校验通过"), "{out}");
     }
 }

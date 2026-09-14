@@ -2,6 +2,7 @@ mod analytics;
 mod commands;
 mod connection_settings;
 mod data_source;
+mod frame_explain;
 mod frame_tools;
 mod mutation;
 mod state;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AppToolbar, useProjectShortcuts, showPrompt, type ToolbarAction, type ToolbarMenuDefinition } from 'shared-frontend'
+import { AppToolbar, useProjectShortcuts, showPrompt, useTheme, type ThemeMode, type ToolbarAction, type ToolbarMenuDefinition } from 'shared-frontend'
 import ConnectionSettingsDialog from './ConnectionSettingsDialog.vue'
 import ToolsDialog from './ToolsDialog.vue'
 import AboutDialog from './AboutDialog.vue'
@@ -17,6 +17,15 @@ import NewConnectionDialog from './NewConnectionDialog.vue'
 import NewSlaveDialog from './NewSlaveDialog.vue'
 
 const { t } = useI18n()
+const { mode: themeMode, setMode: setThemeMode } = useTheme()
+function themeItem(id: ThemeMode, labelKey: string): ToolbarAction {
+  return {
+    id: `theme-${id}`,
+    label: `${themeMode.value === id ? '✓ ' : ''}${t(labelKey)}`,
+    separatorBefore: id === 'auto',
+    action: () => setThemeMode(id),
+  }
+}
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
@@ -187,6 +196,9 @@ const menus = computed<ToolbarMenuDefinition[]>(() => [
   ] },
   { id: 'tools', label: t('common.tools'), items: [
     { id: 'tools-dialog', label: t('parity.toolsTitle'), action: () => { showTools.value = true } },
+    themeItem('auto', 'parity.themeSystem'),
+    themeItem('light', 'parity.themeLight'),
+    themeItem('dark', 'parity.themeDark'),
   ] },
   { id: 'help', label: t('parity.menuHelp'), items: [
     { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, busy: updateBusy.value, action: manualCheckUpdate },

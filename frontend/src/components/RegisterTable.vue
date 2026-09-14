@@ -1186,6 +1186,6 @@ function toggleAddrMode() {
 }
 
 .context-menu-item.danger:hover {
-  background: #3d2a30;
+  background: var(--c-row-danger-bg);
 }
 </style>

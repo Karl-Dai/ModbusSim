@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import type { ToolbarAction, ToolbarMenuDefinition } from '../types/toolbar'
 import ToolbarMenu from './ToolbarMenu.vue'
+import ThemeToggle from './ThemeToggle.vue'
 import LangToggle from './LangToggle.vue'
 import VersionBadge from './VersionBadge.vue'
 
@@ -28,6 +29,8 @@ const icons: Record<NonNullable<ToolbarAction['icon']>, string> = {
   scan: 'M6.5 2.5a4 4 0 1 0 0 8 4 4 0 0 0 0-8M10 10l3.5 3.5',
   write: 'm10 2 4 4-7.5 7.5-4.5.5.5-4.5zM8.5 3.5l4 4',
   device: 'M3 2.5h10v11H3zM5.5 5.5h5M5.5 8h5M5.5 10.5h2',
+  sun: 'M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6M8 2v1.5M8 12.5V14M2 8h1.5M12.5 8H14M4.82 4.82 3.76 3.76M11.18 4.82l1.06-1.06M4.82 11.18l-1.06 1.06M11.18 11.18l1.06 1.06',
+  moon: 'M14 8.53A6 6 0 1 1 7.47 2 4.67 4.67 0 0 0 14 8.53z',
 }
 
 function closeMenu(id: string) {
@@ -76,7 +79,7 @@ watch(() => props.busy, busy => { if (busy) openMenu.value = null })
         <span class="toolbar-app-name">{{ title }}</span>
         <span class="toolbar-project-name">{{ projectName }}</span>
       </div>
-      <div class="toolbar-aside"><LangToggle /><VersionBadge /></div>
+      <div class="toolbar-aside"><ThemeToggle /><LangToggle /><VersionBadge /></div>
     </div>
     <div class="toolbar-action-row" role="group" :aria-label="t('toolbar.quickActions')">
       <div class="toolbar-quick-actions">

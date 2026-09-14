@@ -7,7 +7,7 @@ export interface ToolbarAction {
   shortcut?: string
   separatorBefore?: boolean
   tone?: 'start' | 'stop' | 'danger'
-  icon?: 'add' | 'save' | 'play' | 'stop' | 'scan' | 'write' | 'device'
+  icon?: 'add' | 'save' | 'play' | 'stop' | 'scan' | 'write' | 'device' | 'sun' | 'moon'
   action: () => unknown
 }
 

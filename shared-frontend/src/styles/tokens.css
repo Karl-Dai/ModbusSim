@@ -1,7 +1,8 @@
-/* Catppuccin Mocha palette + semantic aliases.
-   Imported once from main.ts so every component can use var(--…). */
+/* Catppuccin palettes + semantic aliases.
+   Imported once from main.ts so every component can use var(--…).
+   Mocha (dark) is the default; [data-theme='light'] switches to Latte. */
 
-:root {
+:root, :root[data-theme='dark'] {
   /* Base layers (dark → light) */
   --c-crust:    #11111b;
   --c-mantle:   #181825;
@@ -26,6 +27,35 @@
   --c-red:      #f38ba8;
   --c-mauve:    #cba6f7;
 
+  --c-row-danger-bg: #3d2a30;
+
   /* Mono stack with broader fallback chain than the original SF Mono / Fira Code. */
   --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+}
+
+:root[data-theme='light'] {
+  /* Catppuccin Latte */
+  --c-crust:    #dce0e8;
+  --c-mantle:   #e6e9ef;
+  --c-base:     #eff1f5;
+  --c-surface0: #ccd0da;
+  --c-surface1: #bcc0cc;
+  --c-surface2: #acb0be;
+  --c-overlay0: #9ca0b0;
+  --c-subtext0: #6c6f85;
+  --c-subtext1: #5c5f77;
+  --c-text:     #4c4f69;
+
+  --c-blue:     #1e66f5;
+  --c-lavender: #7287fd;
+  --c-sapphire: #209fb5;
+  --c-sky:      #04a5e5;
+  --c-teal:     #179299;
+  --c-green:    #40a02b;
+  --c-yellow:   #df8e1d;
+  --c-peach:    #fe640b;
+  --c-red:      #d20f39;
+  --c-mauve:    #8839ef;
+
+  --c-row-danger-bg: #ecd6de;
 }

@@ -1,5 +1,6 @@
 /* Slave shell follows the IEC104 simulator's shared desktop theme. */
 :root { color-scheme: dark; font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+:root[data-theme='light'] { color-scheme: light; }
 button, input, select, textarea { font-family: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
 button:disabled { cursor: default; opacity: .45; }
