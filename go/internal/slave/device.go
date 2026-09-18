@@ -18,9 +18,9 @@ import (
 // Device is a single Modbus slave device with its own register map and
 // definitions, mirroring Rust's SlaveDevice.
 type Device struct {
-	SlaveID      uint8                `json:"slave_id"`
-	Name         string               `json:"name"`
-	RegisterMap  *register.RegisterMap `json:"register_map"`
+	SlaveID      uint8                  `json:"slave_id"`
+	Name         string                 `json:"name"`
+	RegisterMap  *register.RegisterMap  `json:"register_map"`
 	RegisterDefs []register.RegisterDef `json:"register_defs"`
 }
 
@@ -59,10 +59,10 @@ func WithDefaultRegisters(slaveID uint8, name string, maxAddress uint16) *Device
 // Change is one register write triggered by an incoming Modbus request,
 // mirroring Rust's RegisterChange.
 type Change struct {
-	SlaveID      uint8               `json:"slave_id"`
+	SlaveID      uint8                 `json:"slave_id"`
 	RegisterType register.RegisterType `json:"register_type"`
-	Address      uint16              `json:"address"`
-	Value        uint16              `json:"value"`
+	Address      uint16                `json:"address"`
+	Value        uint16                `json:"value"`
 }
 
 // ChangeCallback is invoked after each successful write with the list of
@@ -128,9 +128,9 @@ func (s *Server) ListDevices() []uint8 {
 
 // exception codes.
 const (
-	ExcIllegalFunction     = 0x01
-	ExcIllegalDataAddress  = 0x02
-	ExcIllegalDataValue    = 0x03
+	ExcIllegalFunction    = 0x01
+	ExcIllegalDataAddress = 0x02
+	ExcIllegalDataValue   = 0x03
 )
 
 // ProcessRequest handles a Modbus request PDU for the given slave. Returns

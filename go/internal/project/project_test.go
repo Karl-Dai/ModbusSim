@@ -276,7 +276,7 @@ func TestTransportRTUOverTCPSerde(t *testing.T) {
 
 func TestTLSValuesAndDataSourceSurviveRoundtrip(t *testing.T) {
 	p := NewSlave()
-	serverTLS := &slaveTLSConfig{Enabled: true, CertFile: "server.pem"}
+	serverTLS := &SlaveTLSConfig{Enabled: true, CertFile: "server.pem"}
 	clientTLS := &TlsConfig{Enabled: true, CAFile: "ca.pem"}
 	step := int16(2)
 	p.Connections = []ConnectionConfig{{

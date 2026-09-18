@@ -20,19 +20,19 @@ import (
 type TransportKind string
 
 const (
-	TransportTCP      TransportKind = "tcp"
-	TransportTcpTls   TransportKind = "tcp_tls"
-	TransportRTU      TransportKind = "rtu"
-	TransportASCII    TransportKind = "ascii"
+	TransportTCP        TransportKind = "tcp"
+	TransportTcpTls     TransportKind = "tcp_tls"
+	TransportRTU        TransportKind = "rtu"
+	TransportASCII      TransportKind = "ascii"
 	TransportRTUOverTCP TransportKind = "rtu_over_tcp"
 )
 
 // Transport is the connection target description, mirroring Rust's Transport
 // enum (serde internally-tagged: {"type": "tcp", "host": ..., "port": ...}).
 type Transport struct {
-	Type   TransportKind `json:"type"`
-	Host   string        `json:"host,omitempty"`
-	Port   uint16        `json:"port,omitempty"`
+	Type   TransportKind  `json:"type"`
+	Host   string         `json:"host,omitempty"`
+	Port   uint16         `json:"port,omitempty"`
 	Serial *serial.Config `json:"-"`
 }
 
@@ -49,13 +49,13 @@ type TLSConfig struct {
 
 // Config is the master connection configuration (MasterConfig).
 type Config struct {
-	TargetAddress string       `json:"target_address"`
-	Port          uint16       `json:"port"`
-	SlaveID       uint8        `json:"slave_id"`
-	TimeoutMs     uint64       `json:"timeout_ms"`
+	TargetAddress string          `json:"target_address"`
+	Port          uint16          `json:"port"`
+	SlaveID       uint8           `json:"slave_id"`
+	TimeoutMs     uint64          `json:"timeout_ms"`
 	Requests      RequestSettings `json:"requests"`
-	TLS           TLSConfig    `json:"tls"`
-	Socks5        socks5.Config `json:"socks5"`
+	TLS           TLSConfig       `json:"tls"`
+	Socks5        socks5.Config   `json:"socks5"`
 }
 
 // DefaultConfig mirrors MasterConfig::default().
@@ -150,10 +150,10 @@ const (
 type ReadFunction uint8
 
 const (
-	ReadCoils ReadFunction = iota + 1 // FC01
-	ReadDiscreteInputs                // FC02
-	ReadHoldingRegisters              // FC03
-	ReadInputRegisters                // FC04
+	ReadCoils            ReadFunction = iota + 1 // FC01
+	ReadDiscreteInputs                           // FC02
+	ReadHoldingRegisters                         // FC03
+	ReadInputRegisters                           // FC04
 )
 
 // FCByte returns the wire function code.

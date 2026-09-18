@@ -177,7 +177,7 @@ func (c *Connection) readWithTransport(ctx context.Context, tr transport, slaveI
 		// address & count big-endian
 		reqPDU = reqPDU[:1]
 		var ab [4]byte
-		ab[0] = byte(uint32(startAddress) + offset >> 8)
+		ab[0] = byte(uint32(startAddress) + offset>>8)
 		ab[1] = byte(uint32(startAddress) + offset)
 		ab[2] = byte(count >> 8)
 		ab[3] = byte(count)

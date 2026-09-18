@@ -49,10 +49,10 @@ func (d DataType) RegisterCount() uint16 {
 type Endian string
 
 const (
-	EndianBig        Endian = "big"         // AB CD
-	EndianLittle     Endian = "little"      // CD AB
-	EndianMidBig     Endian = "mid_big"     // BA DC
-	EndianMidLittle  Endian = "mid_little"  // DC BA
+	EndianBig       Endian = "big"        // AB CD
+	EndianLittle    Endian = "little"     // CD AB
+	EndianMidBig    Endian = "mid_big"    // BA DC
+	EndianMidLittle Endian = "mid_little" // DC BA
 )
 
 // DefaultEndian mirrors Rust's #[derive(Default)] on Endian (Big).
@@ -131,8 +131,8 @@ func ValidateDefinitions(defs []RegisterDef) error {
 // RegisterMap stores the four Modbus register areas as sparse maps,
 // mirroring Rust's RegisterMap (HashMap<u16, ...>).
 type RegisterMap struct {
-	Coils            map[uint16]bool `json:"coils"`
-	DiscreteInputs   map[uint16]bool `json:"discrete_inputs"`
+	Coils            map[uint16]bool   `json:"coils"`
+	DiscreteInputs   map[uint16]bool   `json:"discrete_inputs"`
 	HoldingRegisters map[uint16]uint16 `json:"holding_registers"`
 	InputRegisters   map[uint16]uint16 `json:"input_registers"`
 }
@@ -337,6 +337,82 @@ func (m *RegisterMap) RemoveFromDef(def RegisterDef) {
 	case InputRegister:
 		for a := start; a <= end; a++ {
 			delete(m.InputRegisters, a)
+		}
+	}
+}
+
+// ReplaceDef moves a point definition, preserving values when the register
+// type is unchanged (mirrors register.rs replace_def). Bool areas carry all
+// overlapping addresses; word areas carry up to the replacement's word count.
+func (m *RegisterMap) ReplaceDef(original, replacement RegisterDef) {
+	sameBool := original.RegisterType == replacement.RegisterType &&
+		(original.RegisterType == Coil || original.RegisterType == DiscreteInput)
+	sameWord := original.RegisterType == replacement.RegisterType &&
+		(original.RegisterType == HoldingRegType || original.RegisterType == InputRegister)
+
+	var boolValues []bool
+	var wordValues []uint16
+	if start, end, ok := OccupiedRange(original); ok {
+		if sameBool {
+			for a := start; a <= end; a++ {
+				switch original.RegisterType {
+				case Coil:
+					boolValues = append(boolValues, m.Coils[a])
+				case DiscreteInput:
+					boolValues = append(boolValues, m.DiscreteInputs[a])
+				}
+			}
+		} else if sameWord {
+			for a := start; a <= end; a++ {
+				switch original.RegisterType {
+				case HoldingRegType:
+					wordValues = append(wordValues, m.HoldingRegisters[a])
+				case InputRegister:
+					wordValues = append(wordValues, m.InputRegisters[a])
+				}
+			}
+		}
+	}
+
+	m.RemoveFromDef(original)
+	m.EnsureFromDef(replacement)
+
+	for offset, value := range boolValues {
+		addr := uint32(replacement.Address) + uint32(offset)
+		if addr > 65535 {
+			break
+		}
+		switch replacement.RegisterType {
+		case Coil:
+			if _, ok := m.Coils[uint16(addr)]; ok {
+				m.Coils[uint16(addr)] = value
+			}
+		case DiscreteInput:
+			if _, ok := m.DiscreteInputs[uint16(addr)]; ok {
+				m.DiscreteInputs[uint16(addr)] = value
+			}
+		}
+	}
+	if len(wordValues) > 0 {
+		count := int(replacement.DataType.RegisterCount())
+		for offset, value := range wordValues {
+			if offset >= count {
+				break
+			}
+			addr := uint32(replacement.Address) + uint32(offset)
+			if addr > 65535 {
+				break
+			}
+			switch replacement.RegisterType {
+			case HoldingRegType:
+				if _, ok := m.HoldingRegisters[uint16(addr)]; ok {
+					m.HoldingRegisters[uint16(addr)] = value
+				}
+			case InputRegister:
+				if _, ok := m.InputRegisters[uint16(addr)]; ok {
+					m.InputRegisters[uint16(addr)] = value
+				}
+			}
 		}
 	}
 }

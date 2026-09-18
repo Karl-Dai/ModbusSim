@@ -13,9 +13,9 @@ import (
 
 // ClientInfo describes one connected client (serde-compatible field names).
 type ClientInfo struct {
-	ID           uint64 `json:"id"`
-	PeerAddress  string `json:"peer_address"`
-	ConnectedAt  string `json:"connected_at"`
+	ID          uint64 `json:"id"`
+	PeerAddress string `json:"peer_address"`
+	ConnectedAt string `json:"connected_at"`
 }
 
 type registry struct {
@@ -25,14 +25,14 @@ type registry struct {
 }
 
 type entry struct {
-	info  ClientInfo
-	conn  net.Conn
+	info ClientInfo
+	conn net.Conn
 }
 
 // ConnectedClients tracks live client connections so the UI can list them
 // and the server can force-close them all on stop.
 type ConnectedClients struct {
-	mu sync.Mutex
+	mu  sync.Mutex
 	reg registry
 }
 

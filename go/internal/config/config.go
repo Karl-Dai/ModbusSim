@@ -22,10 +22,10 @@ import (
 // RegisterValues holds current values for all four areas as (address, value)
 // pairs. JSON uses two-element arrays, matching Rust's Vec<(u16, _)>.
 type RegisterValues struct {
-	Coils           [][2]interface{} `json:"coils,omitempty"`
-	DiscreteInputs  [][2]interface{} `json:"discrete_inputs,omitempty"`
+	Coils            [][2]interface{} `json:"coils,omitempty"`
+	DiscreteInputs   [][2]interface{} `json:"discrete_inputs,omitempty"`
 	HoldingRegisters [][2]interface{} `json:"holding_registers,omitempty"`
-	InputRegisters  [][2]interface{} `json:"input_registers,omitempty"`
+	InputRegisters   [][2]interface{} `json:"input_registers,omitempty"`
 }
 
 // ValuesFromRegisterMap snapshots a RegisterMap (config.rs from_register_map).
@@ -119,15 +119,15 @@ func pairBool(v interface{}) bool {
 
 // RegisterDefEntry is a register definition entry for configuration export.
 type RegisterDefEntry struct {
-	Address      uint16                 `json:"address"`
-	RegisterType register.RegisterType `json:"type"`
-	DataType     register.DataType      `json:"data_type"`
-	Endian       register.Endian        `json:"endian"`
-	Name         string                 `json:"name,omitempty"`
-	Comment      string                 `json:"comment,omitempty"`
-	Value        *uint16                `json:"value,omitempty"`
+	Address      uint16                   `json:"address"`
+	RegisterType register.RegisterType    `json:"type"`
+	DataType     register.DataType        `json:"data_type"`
+	Endian       register.Endian          `json:"endian"`
+	Name         string                   `json:"name,omitempty"`
+	Comment      string                   `json:"comment,omitempty"`
+	Value        *uint16                  `json:"value,omitempty"`
 	Mutation     *register.MutationConfig `json:"mutation,omitempty"`
-	DataSource   *datasource.Config     `json:"data_source,omitempty"`
+	DataSource   *datasource.Config       `json:"data_source,omitempty"`
 }
 
 // UnmarshalJSON applies the same serde defaults as RegisterDef: endian
@@ -166,9 +166,9 @@ func (e *RegisterDefEntry) ToRegisterDef() register.RegisterDef {
 
 // DeviceConfig is the configuration for a single slave device.
 type DeviceConfig struct {
-	SlaveID   uint8               `json:"slave_id"`
-	Name      string              `json:"name"`
-	Registers []RegisterDefEntry  `json:"registers,omitempty"`
+	SlaveID   uint8              `json:"slave_id"`
+	Name      string             `json:"name"`
+	Registers []RegisterDefEntry `json:"registers,omitempty"`
 }
 
 // Validate checks the device config.
@@ -193,9 +193,9 @@ func (c *DeviceConfig) Validate() error {
 // ConnectionConfig is the configuration for a slave connection
 // (transport + all devices).
 type ConnectionConfig struct {
-	Transport master.Transport   `json:"transport"`
-	Devices   []DeviceConfig     `json:"devices,omitempty"`
-	AutoStart bool               `json:"auto_start"`
+	Transport master.Transport `json:"transport"`
+	Devices   []DeviceConfig   `json:"devices,omitempty"`
+	AutoStart bool             `json:"auto_start"`
 }
 
 func transportPort(t *master.Transport) (uint16, bool) {

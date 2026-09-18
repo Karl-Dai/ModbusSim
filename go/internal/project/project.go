@@ -31,11 +31,11 @@ type TlsConfig = master.TLSConfig
 // ReconnectPolicy is the project-file form of master.ReconnectPolicy with
 // millisecond fields (serde-compatible; the runtime type uses Duration).
 type ReconnectPolicy struct {
-	Enabled       bool    `json:"enabled"`
-	InitialDelayMs uint64 `json:"initial_delay_ms"`
-	MaxDelayMs    uint64  `json:"max_delay_ms"`
-	BackoffFactor float64 `json:"backoff_factor"`
-	MaxAttempts   uint32  `json:"max_attempts"` // 0 = unlimited
+	Enabled        bool    `json:"enabled"`
+	InitialDelayMs uint64  `json:"initial_delay_ms"`
+	MaxDelayMs     uint64  `json:"max_delay_ms"`
+	BackoffFactor  float64 `json:"backoff_factor"`
+	MaxAttempts    uint32  `json:"max_attempts"` // 0 = unlimited
 }
 
 // DefaultReconnectPolicy mirrors serde defaults (enabled, 1000/30000/2/unlimited).
@@ -86,12 +86,11 @@ type TransportConfig struct {
 	StopBits  uint8           `json:"stop_bits,omitempty"`
 	Parity    string          `json:"parity,omitempty"`
 	ClientTLS *TlsConfig      `json:"client_tls,omitempty"`
-	ServerTLS *slaveTLSConfig `json:"server_tls,omitempty"`
+	ServerTLS *SlaveTLSConfig `json:"server_tls,omitempty"`
 }
 
-// slaveTLSConfig mirrors Rust's SlaveTlsConfig via the slave package's
-// TLSConfig (same fields/tags).
-type slaveTLSConfig = struct {
+// SlaveTLSConfig mirrors Rust's SlaveTlsConfig (slave side).
+type SlaveTLSConfig struct {
 	Enabled           bool   `json:"enabled"`
 	CertFile          string `json:"cert_file"`
 	KeyFile           string `json:"key_file"`
@@ -153,7 +152,7 @@ func (t *TransportConfig) UnmarshalJSON(b []byte) error {
 		Stop  uint8           `json:"stop_bits"`
 		Par   string          `json:"parity"`
 		ClTLS *TlsConfig      `json:"client_tls"`
-		SvTLS *slaveTLSConfig `json:"server_tls"`
+		SvTLS *SlaveTLSConfig `json:"server_tls"`
 	}
 	if err := json.Unmarshal(b, &probe); err != nil {
 		return err
@@ -213,11 +212,11 @@ type RegistersConfig struct {
 
 // DeviceConfig is a slave device definition in a project file.
 type DeviceConfig struct {
-	SlaveID      uint8                `json:"slave_id"`
-	Name         string               `json:"name,omitempty"`
+	SlaveID      uint8                  `json:"slave_id"`
+	Name         string                 `json:"name,omitempty"`
 	RegisterDefs []register.RegisterDef `json:"register_defs,omitempty"`
-	Registers    RegistersConfig      `json:"registers"`
-	Values       config.RegisterValues `json:"values"`
+	Registers    RegistersConfig        `json:"registers"`
+	Values       config.RegisterValues  `json:"values"`
 }
 
 // ScanGroupConfig is a scan group definition (master projects).
@@ -234,16 +233,16 @@ type ScanGroupConfig struct {
 
 // ConnectionConfig is one connection definition in a project file.
 type ConnectionConfig struct {
-	ID              string             `json:"id"`
-	Name            string             `json:"name"`
-	Transport       TransportConfig    `json:"transport"`
-	Devices         []DeviceConfig     `json:"devices,omitempty"`
-	ScanGroups      []ScanGroupConfig  `json:"scan_groups,omitempty"`
-	DefaultSlaveID  uint8              `json:"default_slave_id"`
-	TimeoutMs       uint64             `json:"timeout_ms"`
-	Requests        RequestSettings    `json:"requests"`
-	ReconnectPolicy ReconnectPolicy    `json:"reconnect_policy"`
-	Socks5          *socks5.Config     `json:"socks5,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Transport       TransportConfig   `json:"transport"`
+	Devices         []DeviceConfig    `json:"devices,omitempty"`
+	ScanGroups      []ScanGroupConfig `json:"scan_groups,omitempty"`
+	DefaultSlaveID  uint8             `json:"default_slave_id"`
+	TimeoutMs       uint64            `json:"timeout_ms"`
+	Requests        RequestSettings   `json:"requests"`
+	ReconnectPolicy ReconnectPolicy   `json:"reconnect_policy"`
+	Socks5          *socks5.Config    `json:"socks5,omitempty"`
 }
 
 // UnmarshalJSON applies serde's field defaults for missing values.
