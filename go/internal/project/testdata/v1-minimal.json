@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "type": "master",
+  "connections": [
+    {
+      "id": "c1",
+      "name": "ASCII",
+      "transport": {
+        "type": "ascii",
+        "port": "COM5",
+        "baud_rate": 0,
+        "data_bits": 0,
+        "stop_bits": 0,
+        "parity": "bogus"
+      },
+      "devices": [],
+      "scan_groups": [
+        {
+          "name": "SG",
+          "slave_id": 5,
+          "function_code": 1,
+          "start_address": 0,
+          "count": 8,
+          "interval_ms": 500
+        }
+      ]
+    }
+  ]
+}

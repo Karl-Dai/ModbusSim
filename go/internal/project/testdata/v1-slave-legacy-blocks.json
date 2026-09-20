@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "type": "slave",
+  "connections": [
+    {
+      "id": "conn_rtu",
+      "name": "RTU gateway",
+      "transport": {
+        "type": "rtu",
+        "port": "/dev/tty.usbserial",
+        "baud_rate": 19200,
+        "data_bits": 8,
+        "stop_bits": 2,
+        "parity": "even"
+      },
+      "devices": [
+        {
+          "slave_id": 3,
+          "name": "Legacy",
+          "registers": {
+            "coils": [
+              {
+                "address": 0,
+                "count": 3,
+                "values": [true, false, 1],
+                "names": { "0": "Run", "2": "Fault" }
+              }
+            ],
+            "discrete_inputs": [
+              { "address": 10, "count": 2, "values": [false, false] }
+            ],
+            "holding": [
+              {
+                "address": 100,
+                "count": 4,
+                "data_type": "uint32",
+                "endian": "mid_little",
+                "values": [1, 2, 3, 4],
+                "names": { "100": "Total", "2": "Relative" }
+              }
+            ],
+            "input": [
+              { "address": 20, "count": 2, "data_type": "float32", "values": [0, 0] }
+            ]
+          },
+          "values": {}
+        }
+      ],
+      "scan_groups": [],
+      "default_slave_id": 3,
+      "timeout_ms": 3000,
+      "requests": { "interval_ms": 0, "max_read_registers": 125, "max_read_bits": 2000 },
+      "reconnect_policy": {
+        "enabled": true,
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "backoff_factor": 2,
+        "max_attempts": null
+      }
+    }
+  ]
+}
