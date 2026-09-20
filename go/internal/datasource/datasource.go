@@ -120,15 +120,21 @@ type State struct {
 
 // NewState creates a state with the first due time one period from now.
 func NewState(cfg Config) *State {
+	return NewStateAt(cfg, time.Now())
+}
+
+// NewStateAt is NewState with an explicit start clock, so a scheduler can seed
+// due times from the same instant it seeds sine/sawtooth phases.
+func NewStateAt(cfg Config, now time.Time) *State {
 	var start int32
 	if cfg.Source.Type == KindCounter {
 		start = int32(cfg.Source.Start)
 	}
 	return &State{
 		Config:       cfg,
-		startTime:    time.Now(),
+		startTime:    now,
 		counterValue: start,
-		nextDue:      time.Now().Add(Period(cfg.UpdateIntervalMs)),
+		nextDue:      now.Add(Period(cfg.UpdateIntervalMs)),
 	}
 }
 
