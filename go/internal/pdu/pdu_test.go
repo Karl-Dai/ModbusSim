@@ -70,9 +70,9 @@ func TestParseErrors(t *testing.T) {
 	}
 	// Malformed supported functions -> exception 0x03
 	for name, pdu := range map[string][]byte{
-		"extra byte":      {0x03, 0, 0, 0, 1, 0},
-		"invalid coil":    {0x05, 0, 0, 0x12, 0x34},
-		"bad byte count":  {0x0F, 0, 0, 0, 9, 1, 0},
+		"extra byte":     {0x03, 0, 0, 0, 1, 0},
+		"invalid coil":   {0x05, 0, 0, 0x12, 0x34},
+		"bad byte count": {0x0F, 0, 0, 0, 9, 1, 0},
 	} {
 		_, err := ParseRequest(pdu)
 		if pe, ok := err.(*ParseError); !ok || pe.ExceptionCode() != 0x03 {

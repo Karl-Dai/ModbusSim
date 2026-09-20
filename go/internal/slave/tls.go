@@ -16,13 +16,13 @@ import (
 
 // TLSConfig mirrors Rust's SlaveTlsConfig (transport.rs) field names.
 type TLSConfig struct {
-	Enabled          bool   `json:"enabled"`
-	CertFile         string `json:"cert_file"`
-	KeyFile          string `json:"key_file"`
-	CAFile           string `json:"ca_file"`
-	RequireClientCert bool  `json:"require_client_cert"`
-	PKCS12File       string `json:"pkcs12_file"`
-	PKCS12Password   string `json:"pkcs12_password"`
+	Enabled           bool   `json:"enabled"`
+	CertFile          string `json:"cert_file"`
+	KeyFile           string `json:"key_file"`
+	CAFile            string `json:"ca_file"`
+	RequireClientCert bool   `json:"require_client_cert"`
+	PKCS12File        string `json:"pkcs12_file"`
+	PKCS12Password    string `json:"pkcs12_password"`
 }
 
 // BuildTLSConfig builds a *tls.Config for the server side. Uses

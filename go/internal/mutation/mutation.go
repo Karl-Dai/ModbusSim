@@ -25,9 +25,9 @@ const DefaultPeriodMs = 1000
 
 // Config is the per-point mutation configuration, persisted on RegisterDef.
 type Config struct {
-	Enabled  bool   `json:"enabled"`
-	Mode     Mode   `json:"mode"`
-	PeriodMs uint64 `json:"period_ms"`
+	Enabled  bool    `json:"enabled"`
+	Mode     Mode    `json:"mode"`
+	PeriodMs uint64  `json:"period_ms"`
 	Step     float64 `json:"step"`
 	Min      float64 `json:"min"`
 	Max      float64 `json:"max"`

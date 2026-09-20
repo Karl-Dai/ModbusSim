@@ -47,10 +47,10 @@ func (d DataType) RegisterCount() uint16 {
 type Endian string
 
 const (
-	EndianBig        Endian = "big"         // AB CD
-	EndianLittle     Endian = "little"      // CD AB
-	EndianMidBig     Endian = "mid_big"     // BA DC
-	EndianMidLittle  Endian = "mid_little"  // DC BA
+	EndianBig       Endian = "big"        // AB CD
+	EndianLittle    Endian = "little"     // CD AB
+	EndianMidBig    Endian = "mid_big"    // BA DC
+	EndianMidLittle Endian = "mid_little" // DC BA
 )
 
 // DefaultEndian mirrors Rust's #[derive(Default)] on Endian (Big).
@@ -127,8 +127,8 @@ func ValidateDefinitions(defs []RegisterDef) error {
 // RegisterMap stores the four Modbus register areas as sparse maps,
 // mirroring Rust's RegisterMap (HashMap<u16, ...>).
 type RegisterMap struct {
-	Coils            map[uint16]bool `json:"coils"`
-	DiscreteInputs   map[uint16]bool `json:"discrete_inputs"`
+	Coils            map[uint16]bool   `json:"coils"`
+	DiscreteInputs   map[uint16]bool   `json:"discrete_inputs"`
 	HoldingRegisters map[uint16]uint16 `json:"holding_registers"`
 	InputRegisters   map[uint16]uint16 `json:"input_registers"`
 }

@@ -36,4 +36,3 @@ func logcolNewCollector() *logcol.Collector { return logcol.NewCollector() }
 type logcolSink struct{}
 
 func (logcolSink) AddRequest(direction string, fc uint8, detail string) {}
-

@@ -158,9 +158,9 @@ func (t *tlsTransport) close() error { return t.conn.Close() }
 // ---------------------------------------------------------------------------
 
 type serialTransport struct {
-	port           goserial.Port
-	interframe     time.Duration
-	ascii          bool
+	port       goserial.Port
+	interframe time.Duration
+	ascii      bool
 }
 
 func newSerialTransport(cfg *serial.Config, ascii bool) (*serialTransport, error) {
@@ -177,9 +177,9 @@ func newSerialTransport(cfg *serial.Config, ascii bool) (*serialTransport, error
 		return nil, errTransport(fmt.Sprintf("Failed to open serial port %s: %v", cfg.Port, err))
 	}
 	return &serialTransport{
-		port:     port,
+		port:       port,
 		interframe: serial.InterframeDelay(cfg.BaudRate),
-		ascii:    ascii,
+		ascii:      ascii,
 	}, nil
 }
 

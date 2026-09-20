@@ -15,8 +15,8 @@ type Request struct {
 	// Quantity for FC01-FC04, FC15/16.
 	Quantity uint16
 	// Value for FC05 (coil true/false) and FC06.
-	Value   uint16 // FC06 register value
-	CoilOn  bool   // FC05: value decoded from 0xFF00/0x0000
+	Value  uint16 // FC06 register value
+	CoilOn bool   // FC05: value decoded from 0xFF00/0x0000
 	// Values for FC15 (bits) / FC16 (registers).
 	Bits      []bool
 	Registers []uint16
