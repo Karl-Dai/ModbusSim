@@ -41,10 +41,14 @@ func BuildTLSConfig(cfg TLSConfig) (*tls.Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Failed to parse PKCS#12: %w", err)
 		}
-		cert.Leaf = leaf
+		// crypto/tls sends Certificates[0].Certificate; Leaf is local-only, so the
+		// identity's own DER must head the chain or peers receive just the CA.
+		der := [][]byte{leaf.Raw}
 		for _, ca := range caCerts {
-			cert.Certificate = append(cert.Certificate, ca.Raw)
+			der = append(der, ca.Raw)
 		}
+		cert.Leaf = leaf
+		cert.Certificate = der
 		cert.PrivateKey = privKey
 
 	case cfg.CertFile != "" && cfg.KeyFile != "":

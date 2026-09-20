@@ -331,7 +331,9 @@ func FormatRequestDetail(req *pdu.Request) string {
 	case pdu.FCWriteSingleCoil:
 		return fmt.Sprintf("W %d = %v", req.Address, req.CoilOn)
 	case pdu.FCWriteSingleRegister:
-		return fmt.Sprintf("W %d = 0x%04X", req.Address, req.Value)
+		// Rust's {:#06x} counts the 0x prefix in the width; Go's %#06x pads the
+		// digits instead, so spell the lowercase 4-digit form out (uint16 fits).
+		return fmt.Sprintf("W %d = 0x%04x", req.Address, req.Value)
 	case pdu.FCWriteMultipleCoils:
 		return fmt.Sprintf("W %d x%d", req.Address, len(req.Bits))
 	case pdu.FCWriteMultipleRegisters:
@@ -342,7 +344,7 @@ func FormatRequestDetail(req *pdu.Request) string {
 
 // LogRx/LogTx helpers shared by listeners.
 func (s *Server) LogRx(req *pdu.Request) {
-	s.logOne(logcol.Rx, req, "OK", nil)
+	s.logOne(logcol.Rx, req, FormatRequestDetail(req), nil)
 }
 
 // LogResponse logs the outbound response detail (OK or exception).
