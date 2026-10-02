@@ -144,7 +144,7 @@ jobs:
 
       - name: Verify packaged AppImage permissions and startup
         if: matrix.target.platform == 'ubuntu-22.04'
-        run: bash scripts/verify-appimage.sh target/release/bundle/appimage/${{ matrix.app.product }}_*.AppImage ${{ matrix.app.crate_bin }}
+        run: bash scripts/verify-appimage.sh target/release/bundle/appimage/${{ matrix.app.product }}_*.AppImage ${{ matrix.app.crate_bin }} "${{ matrix.app.product }}"
 
       # tauri-action does not retry every bundle upload. Parallel jobs sharing
       # a draft release can hit GitHub's delete/upload race, so re-upload this

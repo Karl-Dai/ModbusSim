@@ -3,6 +3,7 @@ set -euo pipefail
 
 image="$(realpath "$1")"
 binary="$2"
+window_pattern="${3:-.}"
 work_dir="$(mktemp -d)"
 trap 'rm -rf -- "$work_dir"' EXIT
 chmod +x "$image"
@@ -18,7 +19,7 @@ for entry in AppRun AppRun.wrapped "usr/bin/$binary"; do
 done
 
 # Validate the actual packaged launcher and libraries, without a desktop window.
-xvfb-run -a bash -s -- "$work_dir/squashfs-root" <<'SMOKE'
+xvfb-run -a bash -s -- "$work_dir/squashfs-root" "$window_pattern" <<'SMOKE'
 set -euo pipefail
 cd "$1"
 ./AppRun > appimage-smoke.log 2>&1 &
@@ -32,12 +33,15 @@ for attempt in {1..15}; do
     echo "::error::AppImage exited before the startup smoke test completed"
     exit 1
   fi
-  if xdotool search --onlyvisible --pid "$app_pid" > /dev/null 2>&1; then
+  # AppRun may keep a parent process while the GTK window belongs to its child.
+  # This display is isolated, so match the application title rather than that PID.
+  if xdotool search --onlyvisible --name "$2" > /dev/null 2>&1; then
     window_seen=true
   fi
 done
 if [ "$window_seen" != true ]; then
   cat appimage-smoke.log
+  xwininfo -root -tree || true
   echo "::error::AppImage did not show a window"
   exit 1
 fi
