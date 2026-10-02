@@ -34,7 +34,10 @@ mod tests {
     fn auto_detects_tcp_and_explains_request_in_chinese() {
         let out = run("00 01 00 00 00 06 01 03 00 00 00 01", "auto", "auto", "zh").unwrap();
         assert!(out.contains("Modbus TCP"), "{out}");
-        assert!(out.contains("主站向 1 号从站发起「读保持寄存器」：从 40001 开始，读 1 个寄存器"), "{out}");
+        assert!(
+            out.contains("主站向 1 号从站发起「读保持寄存器」：从 40001 开始，读 1 个寄存器"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -48,13 +51,19 @@ mod tests {
     #[test]
     fn auto_detects_response_direction() {
         let out = run("00 01 00 00 00 05 01 03 02 00 0A", "auto", "auto", "zh").unwrap();
-        assert!(out.contains("1 号从站回复「读保持寄存器」：40001 = 10（0x000A）"), "{out}");
+        assert!(
+            out.contains("1 号从站回复「读保持寄存器」：40001 = 10（0x000A）"),
+            "{out}"
+        );
     }
 
     #[test]
     fn translates_exception_codes() {
         let out = run("00 01 00 00 00 03 01 83 02", "auto", "auto", "zh").unwrap();
-        assert!(out.contains("1 号从站拒绝了「读保持寄存器」请求：非法数据地址"), "{out}");
+        assert!(
+            out.contains("1 号从站拒绝了「读保持寄存器」请求：非法数据地址"),
+            "{out}"
+        );
         let en = run("00 01 00 00 00 03 01 83 02", "auto", "auto", "en").unwrap();
         assert!(en.contains("Illegal data address"), "{en}");
     }
@@ -91,7 +100,13 @@ mod tests {
 
     #[test]
     fn write_single_coil_summary_is_human_readable() {
-        let out = run("00 02 00 00 00 06 01 05 00 00 FF 00", "tcp", "request", "zh").unwrap();
+        let out = run(
+            "00 02 00 00 00 06 01 05 00 00 FF 00",
+            "tcp",
+            "request",
+            "zh",
+        )
+        .unwrap();
         assert!(out.contains("把线圈 00001 设为 ON"), "{out}");
     }
 
