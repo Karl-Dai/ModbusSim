@@ -250,9 +250,18 @@ struct Body {
 }
 
 enum Trailer {
-    Tcp { extra: Option<Vec<u8>> },
-    Rtu { pass: bool, lo: u8, hi: u8, crc: u16 },
-    Ascii { lrc: u8 },
+    Tcp {
+        extra: Option<Vec<u8>>,
+    },
+    Rtu {
+        pass: bool,
+        lo: u8,
+        hi: u8,
+        crc: u16,
+    },
+    Ascii {
+        lrc: u8,
+    },
 }
 
 struct TransportResult {
@@ -352,7 +361,9 @@ fn guess_direction(fc: u8, data: &[u8], lang: Lang) -> (bool, Option<String>) {
                     false,
                     Some(lang.pick(
                         format!("无法从报文结构判断方向{manual}"),
-                        format!("Could not determine the direction from the frame structure{manual}"),
+                        format!(
+                            "Could not determine the direction from the frame structure{manual}"
+                        ),
                     )),
                 )
             }
@@ -371,7 +382,9 @@ fn guess_direction(fc: u8, data: &[u8], lang: Lang) -> (bool, Option<String>) {
                     false,
                     Some(lang.pick(
                         format!("无法从报文结构判断方向{manual}"),
-                        format!("Could not determine the direction from the frame structure{manual}"),
+                        format!(
+                            "Could not determine the direction from the frame structure{manual}"
+                        ),
                     )),
                 )
             }
@@ -386,7 +399,9 @@ fn guess_direction(fc: u8, data: &[u8], lang: Lang) -> (bool, Option<String>) {
                     false,
                     Some(lang.pick(
                         format!("无法从报文结构判断方向{manual}"),
-                        format!("Could not determine the direction from the frame structure{manual}"),
+                        format!(
+                            "Could not determine the direction from the frame structure{manual}"
+                        ),
                     )),
                 )
             }
@@ -510,14 +525,13 @@ fn parse_transport(
             format!("长度字段: {declared}（实际后续 {actual} 字节）"),
             format!("Length field: {declared} ({actual} bytes actually follow)"),
         ));
-        tech.push(lang.pick(
-            format!("单元标识符: {unit}"),
-            format!("Unit ID: {unit}"),
-        ));
+        tech.push(lang.pick(format!("单元标识符: {unit}"), format!("Unit ID: {unit}")));
         if proto != 0 {
             hints.push(lang.pick(
                 format!("协议标识符是 0x{proto:04X}，标准 Modbus TCP 应该是 0x0000"),
-                format!("The protocol identifier is 0x{proto:04X}; standard Modbus TCP uses 0x0000"),
+                format!(
+                    "The protocol identifier is 0x{proto:04X}; standard Modbus TCP uses 0x0000"
+                ),
             ));
         }
         if declared != actual {
@@ -632,10 +646,7 @@ fn parse_transport(
             format!("Slave address: {unit}"),
         ));
         if pass {
-            hints.push(lang.pick(
-                "CRC 校验通过".into(),
-                "CRC check passed".into(),
-            ));
+            hints.push(lang.pick("CRC 校验通过".into(), "CRC check passed".into()));
         } else {
             hints.push(lang.pick(
                 format!(
@@ -678,6 +689,8 @@ fn parse_transport(
     }
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_read_body(
     info: &FcInfo,
     fc_quoted: &str,
@@ -733,7 +746,10 @@ fn parse_read_body(
             if qty < 1 || qty > info.max_qty as usize {
                 hints.push(lang.pick(
                     format!("读取数量 {qty} 超出协议允许范围（1~{}）", info.max_qty),
-                    format!("Read quantity {qty} is outside the protocol range (1-{})", info.max_qty),
+                    format!(
+                        "Read quantity {qty} is outside the protocol range (1-{})",
+                        info.max_qty
+                    ),
                 ));
             }
             return Body {
@@ -838,7 +854,10 @@ fn parse_read_body(
         if info.kind == Kind::Bits {
             lang.pick(
                 format!("每一位代表一个{}的状态（每个字节内低位在前）", info.unit_zh),
-                format!("each bit is the state of one {} (LSB first within each byte)", info.unit_en),
+                format!(
+                    "each bit is the state of one {} (LSB first within each byte)",
+                    info.unit_en
+                ),
             )
         } else {
             lang.pick(
@@ -904,8 +923,16 @@ fn parse_read_body(
         for (n, pair) in usable.chunks_exact(2).enumerate() {
             let value = u16::from_be_bytes([pair[0], pair[1]]);
             rows.push(lang.pick(
-                format!("{} = {}（0x{value:04X}）", plc_label(info.plc_base, n as u16), value),
-                format!("{} = {} (0x{value:04X})", plc_label(info.plc_base, n as u16), value),
+                format!(
+                    "{} = {}（0x{value:04X}）",
+                    plc_label(info.plc_base, n as u16),
+                    value
+                ),
+                format!(
+                    "{} = {} (0x{value:04X})",
+                    plc_label(info.plc_base, n as u16),
+                    value
+                ),
             ));
         }
         let note = lang.pick(
@@ -949,6 +976,8 @@ fn usable_len(byte_count: usize, payload_len: usize) -> usize {
     byte_count.min(payload_len)
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_write_single_body(
     info: &FcInfo,
     fc_quoted: &str,
@@ -984,7 +1013,10 @@ fn parse_write_single_body(
             ));
         }
         let head = if is_response {
-            lang.pick(format!("{uw}回复{fc_quoted}"), format!("{uw} replied to {fc_quoted}"))
+            lang.pick(
+                format!("{uw}回复{fc_quoted}"),
+                format!("{uw} replied to {fc_quoted}"),
+            )
         } else {
             lang.pick(
                 format!("主站向 {uw}发起{fc_quoted}"),
@@ -1022,7 +1054,9 @@ fn parse_write_single_body(
             _ => {
                 hints.push(lang.pick(
                     format!("写线圈的值应为 0xFF00（ON）或 0x0000（OFF），实际是 0x{val:04X}"),
-                    format!("A coil write value should be 0xFF00 (ON) or 0x0000 (OFF), got 0x{val:04X}"),
+                    format!(
+                        "A coil write value should be 0xFF00 (ON) or 0x0000 (OFF), got 0x{val:04X}"
+                    ),
                 ));
                 if matches!(lang, Lang::Zh) {
                     "未知"
@@ -1098,6 +1132,8 @@ fn parse_write_single_body(
     }
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_write_multi_body(
     info: &FcInfo,
     fc_quoted: &str,
@@ -1115,10 +1151,7 @@ fn parse_write_multi_body(
     if is_response {
         if data.len() != 4 {
             hints.push(lang.pick(
-                format!(
-                    "该功能码的响应数据区应为 4 个字节，实际 {} 个",
-                    data.len()
-                ),
+                format!("该功能码的响应数据区应为 4 个字节，实际 {} 个", data.len()),
                 format!(
                     "The response data area for this function should be 4 bytes, got {}",
                     data.len()
@@ -1165,14 +1198,17 @@ fn parse_write_multi_body(
             format!("起始地址: {start}（PLC {plc}）"),
             format!("Start address: {start} (PLC {plc})"),
         ));
-        tech.push(lang.pick(
-            format!("写入数量: {qty}"),
-            format!("Write quantity: {qty}"),
-        ));
+        tech.push(lang.pick(format!("写入数量: {qty}"), format!("Write quantity: {qty}")));
         return Body {
             summary: lang.pick(
-                format!("{uw}确认：已从 {plc} 开始写入 {}", qty_unit(info, qty, lang)),
-                format!("{uw} confirmed: wrote {} starting from {plc}", qty_unit(info, qty, lang)),
+                format!(
+                    "{uw}确认：已从 {plc} 开始写入 {}",
+                    qty_unit(info, qty, lang)
+                ),
+                format!(
+                    "{uw} confirmed: wrote {} starting from {plc}",
+                    qty_unit(info, qty, lang)
+                ),
             ),
             detail_rows: vec![],
             detail_note: None,
@@ -1239,10 +1275,7 @@ fn parse_write_multi_body(
         format!("起始地址: {start}（PLC {plc}）"),
         format!("Start address: {start} (PLC {plc})"),
     ));
-    tech.push(lang.pick(
-        format!("写入数量: {qty}"),
-        format!("Write quantity: {qty}"),
-    ));
+    tech.push(lang.pick(format!("写入数量: {qty}"), format!("Write quantity: {qty}")));
     tech.push(lang.pick(
         format!("字节计数: {byte_count}"),
         format!("Byte count: {byte_count}"),
@@ -1250,7 +1283,10 @@ fn parse_write_multi_body(
     if qty < 1 || qty > info.max_qty as usize {
         hints.push(lang.pick(
             format!("写入数量 {qty} 超出协议允许范围（1~{}）", info.max_qty),
-            format!("Write quantity {qty} is outside the protocol range (1-{})", info.max_qty),
+            format!(
+                "Write quantity {qty} is outside the protocol range (1-{})",
+                info.max_qty
+            ),
         ));
     }
     let expected = if info.kind == Kind::WriteMultiCoil {
@@ -1290,7 +1326,8 @@ fn parse_write_multi_body(
             if info.kind == Kind::WriteMultiCoil {
                 lang.pick(
                     "每一位代表一个线圈要写的状态（每个字节内低位在前）".into(),
-                    "each bit is the state to write to one coil (LSB first within each byte)".into(),
+                    "each bit is the state to write to one coil (LSB first within each byte)"
+                        .into(),
                 )
             } else {
                 lang.pick(
@@ -1349,8 +1386,16 @@ fn parse_write_multi_body(
             let value = u16::from_be_bytes([pair[0], pair[1]]);
             let idx = start as usize + rows.len();
             rows.push(lang.pick(
-                format!("{} = {}（0x{value:04X}）", plc_label(info.plc_base, idx as u16), value),
-                format!("{} = {} (0x{value:04X})", plc_label(info.plc_base, idx as u16), value),
+                format!(
+                    "{} = {}（0x{value:04X}）",
+                    plc_label(info.plc_base, idx as u16),
+                    value
+                ),
+                format!(
+                    "{} = {} (0x{value:04X})",
+                    plc_label(info.plc_base, idx as u16),
+                    value
+                ),
             ));
         }
         Body {
@@ -1425,7 +1470,9 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
             fc_label,
             lang.pick(
                 format!("0x{fc_byte:02X} = 0x{fc:02X} + 0x80，表示{fc_quoted}出了异常"),
-                format!("0x{fc_byte:02X} = 0x{fc:02X} + 0x80, meaning {fc_quoted} raised an exception"),
+                format!(
+                    "0x{fc_byte:02X} = 0x{fc:02X} + 0x80, meaning {fc_quoted} raised an exception"
+                ),
             ),
         ));
         tech.push(lang.pick(
@@ -1474,7 +1521,9 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
             Body {
                 summary: lang.pick(
                     format!("{uw}拒绝了{fc_quoted}请求，但异常码缺失"),
-                    format!("{uw} rejected the {fc_quoted} request, but the exception code is missing"),
+                    format!(
+                        "{uw} rejected the {fc_quoted} request, but the exception code is missing"
+                    ),
                 ),
                 detail_rows: vec![],
                 detail_note: None,
@@ -1543,7 +1592,10 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
                         lang.pick("数据区".into(), "Data area".into()),
                         lang.pick(
                             format!("共 {} 字节，该功能码暂不支持详细解析", body.len()),
-                            format!("{} bytes; detailed parsing not supported for this function yet", body.len()),
+                            format!(
+                                "{} bytes; detailed parsing not supported for this function yet",
+                                body.len()
+                            ),
                         ),
                     ));
                     tech.push(lang.pick(
@@ -1623,7 +1675,8 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
                     lang.pick("多余字节".into(), "Extra bytes".into()),
                     lang.pick(
                         "超出长度字段声明的部分，可能是下一条报文的开头".into(),
-                        "bytes beyond the declared length, possibly the start of the next frame".into(),
+                        "bytes beyond the declared length, possibly the start of the next frame"
+                            .into(),
                     ),
                 ));
             }
@@ -1645,7 +1698,11 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
             tech.push(lang.pick(
                 format!(
                     "CRC16: 0x{crc:04X}（线上字节序 {lo:02X} {hi:02X}，{}）",
-                    if *pass { "校验通过" } else { "校验失败" }
+                    if *pass {
+                        "校验通过"
+                    } else {
+                        "校验失败"
+                    }
                 ),
                 format!(
                     "CRC16: 0x{crc:04X} (wire order {lo:02X} {hi:02X}, {})",
@@ -1671,12 +1728,20 @@ pub fn explain(data: &str, transport: &str, direction: &str, lang: Lang) -> Resu
     render(&parsed, &fields, &hints, &tech, lang)
 }
 
-fn render(parsed: &Body, fields: &[Field], hints: &[String], tech: &[String], lang: Lang) -> Result<String, String> {
+fn render(
+    parsed: &Body,
+    fields: &[Field],
+    hints: &[String],
+    tech: &[String],
+    lang: Lang,
+) -> Result<String, String> {
     let mut out = parsed.summary.clone();
     let section = |title: &str| format!("\n\n── {title} ──\n");
 
     if !parsed.detail_rows.is_empty() {
-        out.push_str(&section(&lang.pick("数据明细".into(), "Data details".into())));
+        out.push_str(&section(
+            &lang.pick("数据明细".into(), "Data details".into()),
+        ));
         for row in &parsed.detail_rows {
             out.push_str(row);
             out.push('\n');
@@ -1688,9 +1753,19 @@ fn render(parsed: &Body, fields: &[Field], hints: &[String], tech: &[String], la
         out.pop();
     }
 
-    out.push_str(&section(&lang.pick("逐字节对照".into(), "Byte-by-byte".into())));
-    let w1 = fields.iter().map(|f| display_width(&f.hex)).max().unwrap_or(0);
-    let w2 = fields.iter().map(|f| display_width(&f.label)).max().unwrap_or(0);
+    out.push_str(&section(
+        &lang.pick("逐字节对照".into(), "Byte-by-byte".into()),
+    ));
+    let w1 = fields
+        .iter()
+        .map(|f| display_width(&f.hex))
+        .max()
+        .unwrap_or(0);
+    let w2 = fields
+        .iter()
+        .map(|f| display_width(&f.label))
+        .max()
+        .unwrap_or(0);
     let rows: Vec<String> = fields
         .iter()
         .map(|f| format!("{}  {}  {}", pad(&f.hex, w1), pad(&f.label, w2), f.desc))
@@ -1702,7 +1777,9 @@ fn render(parsed: &Body, fields: &[Field], hints: &[String], tech: &[String], la
         out.push_str(&hints.join("\n"));
     }
 
-    out.push_str(&section(&lang.pick("技术细节".into(), "Technical details".into())));
+    out.push_str(&section(
+        &lang.pick("技术细节".into(), "Technical details".into()),
+    ));
     out.push_str(&tech.join("\n"));
     Ok(out)
 }
