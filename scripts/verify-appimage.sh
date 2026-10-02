@@ -19,14 +19,16 @@ for entry in AppRun AppRun.wrapped "usr/bin/$binary"; do
 done
 
 # Validate the actual packaged launcher and libraries, without a desktop window.
-xvfb-run -a bash -s -- "$work_dir/squashfs-root" "$window_pattern" <<'SMOKE'
+NO_AT_BRIDGE=1 GDK_BACKEND=x11 xvfb-run -a dbus-run-session -- bash -s -- "$work_dir/squashfs-root" "$window_pattern" <<'SMOKE'
 set -euo pipefail
 cd "$1"
+openbox > window-manager.log 2>&1 &
+wm_pid=$!
 ./AppRun > appimage-smoke.log 2>&1 &
 app_pid=$!
-trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+trap 'kill "$app_pid" "$wm_pid" 2>/dev/null || true' EXIT
 window_seen=false
-for attempt in {1..15}; do
+for attempt in {1..30}; do
   sleep 1
   if ! kill -0 "$app_pid" 2>/dev/null; then
     cat appimage-smoke.log
@@ -42,6 +44,7 @@ done
 if [ "$window_seen" != true ]; then
   cat appimage-smoke.log
   xwininfo -root -tree || true
+  ps -eo pid,ppid,stat,args | grep -E "AppRun|pmusim|modbus|WebKit" || true
   echo "::error::AppImage did not show a window"
   exit 1
 fi
