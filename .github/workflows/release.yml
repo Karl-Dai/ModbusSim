@@ -92,7 +92,7 @@ jobs:
         if: matrix.target.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev xvfb xdotool
 
       - uses: actions/setup-node@v4
         with:
@@ -118,6 +118,10 @@ jobs:
         working-directory: ${{ matrix.app.frontend }}
         run: npm run build
 
+      - name: Prepare readable AppImage launcher
+        if: matrix.target.platform == 'ubuntu-22.04'
+        run: bash scripts/prepare-appimage-tools.sh
+
       - name: Build and upload ${{ matrix.app.product }}
         uses: tauri-apps/tauri-action@v0
         env:
@@ -137,6 +141,10 @@ jobs:
           # latest.json from each parallel job would race and is not consumed.
           includeUpdaterJson: false
           args: ${{ matrix.target.args }}
+
+      - name: Verify packaged AppImage permissions and startup
+        if: matrix.target.platform == 'ubuntu-22.04'
+        run: bash scripts/verify-appimage.sh target/release/bundle/appimage/${{ matrix.app.product }}_*.AppImage ${{ matrix.app.crate_bin }}
 
       # tauri-action does not retry every bundle upload. Parallel jobs sharing
       # a draft release can hit GitHub's delete/upload race, so re-upload this

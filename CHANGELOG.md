@@ -16,6 +16,10 @@ All notable changes to ModbusSim are documented in this file.
 - 报文解释按当前语言生成中文或英文摘要，包含请求方向、功能码、地址、数值与异常原因 / Frame explanations follow the selected language and describe direction, function, addresses, values and exceptions.
 - TCP、RTU、ASCII 报文分析补充传输层与校验信息 / TCP, RTU and ASCII explanations include transport and checksum details.
 
+### Fixed 修复
+
+- Linux AppImage 启动器权限设为 0755，并在发布前验证实际封装权限与窗口启动 / Linux AppImage launchers use mode 0755, with packaged-permission and window-startup checks before publication.
+
 ### Changed 改进
 
 - 工具窗口提供自动或手动选择协议与报文方向，方便检查独立报文 / The tools dialog supports automatic or manual protocol and direction selection for standalone frames.
