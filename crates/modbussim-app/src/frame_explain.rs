@@ -689,6 +689,8 @@ fn parse_transport(
     }
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_read_body(
     info: &FcInfo,
     fc_quoted: &str,
@@ -974,6 +976,8 @@ fn usable_len(byte_count: usize, payload_len: usize) -> usize {
     byte_count.min(payload_len)
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_write_single_body(
     info: &FcInfo,
     fc_quoted: &str,
@@ -1128,6 +1132,8 @@ fn parse_write_single_body(
     }
 }
 
+// Keep the shared decoded-frame inputs and diagnostic outputs explicit.
+#[allow(clippy::too_many_arguments)]
 fn parse_write_multi_body(
     info: &FcInfo,
     fc_quoted: &str,
