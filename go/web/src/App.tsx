@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ConnectionInfo, LogEntry, RegisterDef } from './api'
 
 type Poll = ReturnType<typeof setInterval> | undefined
@@ -10,6 +10,9 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [error, setError] = useState<string | null>(null)
   const [mutationRunning, setMutationRunning] = useState(false)
+  const selectedId = useRef<string | null>(null)
+  const registerRequest = useRef({ issued: 0, applied: 0 })
+  const logRequest = useRef({ issued: 0, applied: 0 })
 
   const refreshConnections = useCallback(async () => {
     try {
@@ -21,18 +24,34 @@ export default function App() {
   }, [])
 
   const refreshRegisters = useCallback(async (id: string) => {
+    if (selectedId.current !== id) return
+    const request = ++registerRequest.current.issued
+    const apply = (registers: RegisterDef[]) => {
+      if (selectedId.current === id && request > registerRequest.current.applied) {
+        registerRequest.current.applied = request
+        setRegs(registers)
+      }
+    }
     try {
-      setRegs(await api.listRegisters(id, 1))
+      apply(await api.listRegisters(id, 1))
     } catch {
-      setRegs([])
+      apply([])
     }
   }, [])
 
   const refreshLogs = useCallback(async (id: string) => {
+    if (selectedId.current !== id) return
+    const request = ++logRequest.current.issued
+    const apply = (entries: LogEntry[]) => {
+      if (selectedId.current === id && request > logRequest.current.applied) {
+        logRequest.current.applied = request
+        setLogs(entries.slice(-200).reverse())
+      }
+    }
     try {
-      setLogs((await api.getLogs(id)).slice(-200).reverse())
+      apply(await api.getLogs(id))
     } catch {
-      setLogs([])
+      apply([])
     }
   }, [])
 
@@ -51,12 +70,27 @@ export default function App() {
   // Initial load.
   useEffect(() => {
     refreshConnections()
+    return () => {
+      selectedId.current = null
+      registerRequest.current.applied = ++registerRequest.current.issued
+      logRequest.current.applied = ++logRequest.current.issued
+    }
   }, [refreshConnections])
 
-  const selectConn = (id: string) => {
+  const selectConn = (id: string | null) => {
+    // Invalidate responses immediately, including an earlier visit to the same
+    // connection. Polls apply the newest completed request, allowing slow reads
+    // to update while a later poll is pending without overwriting newer results.
+    selectedId.current = id
+    registerRequest.current.applied = ++registerRequest.current.issued
+    logRequest.current.applied = ++logRequest.current.issued
     setSelected(id)
-    refreshRegisters(id)
-    refreshLogs(id)
+    setRegs([])
+    setLogs([])
+    if (id) {
+      refreshRegisters(id)
+      refreshLogs(id)
+    }
   }
 
   const createConnection = async () => {
@@ -67,7 +101,7 @@ export default function App() {
         transport: { type: 'tcp', host: '127.0.0.1', port: 5020 },
       })
       await refreshConnections()
-      setSelected(info.id)
+      selectConn(info.id)
     } catch (e) {
       setError(String(e))
     }
@@ -89,7 +123,7 @@ export default function App() {
   const removeConnection = async (id: string) => {
     try {
       await api.deleteConnection(id)
-      if (selected === id) setSelected(null)
+      if (selectedId.current === id) selectConn(null)
       await refreshConnections()
     } catch (e) {
       setError(String(e))
@@ -129,7 +163,7 @@ export default function App() {
               <li
                 key={c.id}
                 className={c.id === selected ? 'selected' : ''}
-                onClick={() => setSelected(c.id)}
+                onClick={() => selectConn(c.id)}
               >
                 <div>
                   <b>{c.id}</b>

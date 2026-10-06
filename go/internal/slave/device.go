@@ -35,7 +35,8 @@ func NewDevice(slaveID uint8, name string) *Device {
 func WithDefaultRegisters(slaveID uint8, name string, maxAddress uint16) *Device {
 	d := NewDevice(slaveID, name)
 	d.RegisterDefs = make([]register.RegisterDef, 0, (int(maxAddress)+1)*4)
-	for addr := uint16(0); addr <= maxAddress; addr++ {
+	for i := 0; i <= int(maxAddress); i++ {
+		addr := uint16(i)
 		d.RegisterDefs = append(d.RegisterDefs,
 			register.RegisterDef{Address: addr, RegisterType: register.Coil, DataType: register.TypeBool, Endian: register.DefaultEndian},
 			register.RegisterDef{Address: addr, RegisterType: register.DiscreteInput, DataType: register.TypeBool, Endian: register.DefaultEndian},
@@ -113,6 +114,69 @@ func (s *Server) GetDevice(slaveID uint8) (*Device, bool) {
 	defer s.mu.RUnlock()
 	d, ok := s.devices[slaveID]
 	return d, ok
+}
+
+// ReadRegisterValue reads local simulator data under the same lock as protocol requests.
+func (s *Server) ReadRegisterValue(slaveID uint8, rt register.RegisterType, addr uint16) (uint16, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	dev, ok := s.devices[slaveID]
+	if !ok {
+		return 0, false
+	}
+	switch rt {
+	case register.Coil:
+		v := dev.RegisterMap.ReadCoils(addr, 1)
+		if len(v) == 0 {
+			return 0, false
+		}
+		if v[0] {
+			return 1, true
+		}
+		return 0, true
+	case register.DiscreteInput:
+		v := dev.RegisterMap.ReadDiscreteInputs(addr, 1)
+		if len(v) == 0 {
+			return 0, false
+		}
+		if v[0] {
+			return 1, true
+		}
+		return 0, true
+	case register.HoldingRegType:
+		v := dev.RegisterMap.ReadHoldingRegisters(addr, 1)
+		if len(v) == 0 {
+			return 0, false
+		}
+		return v[0], true
+	case register.InputRegister:
+		v := dev.RegisterMap.ReadInputRegisters(addr, 1)
+		if len(v) == 0 {
+			return 0, false
+		}
+		return v[0], true
+	}
+	return 0, false
+}
+
+// WriteRegisterValue updates local simulator data under the protocol request lock.
+// Unlike a protocol write, it may initialize an address that has no value yet.
+func (s *Server) WriteRegisterValue(slaveID uint8, rt register.RegisterType, addr, value uint16) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dev, ok := s.devices[slaveID]
+	if !ok {
+		return fmt.Errorf("device %d not found", slaveID)
+	}
+	switch rt {
+	case register.Coil:
+		dev.RegisterMap.WriteCoil(addr, value != 0)
+		return nil
+	case register.HoldingRegType:
+		dev.RegisterMap.WriteHoldingRegister(addr, value)
+		return nil
+	}
+	return fmt.Errorf("register type %s is read-only", rt)
 }
 
 // ListDevices returns the registered device IDs.

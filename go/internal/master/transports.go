@@ -2,11 +2,9 @@
 package master
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -56,7 +54,7 @@ func (t *tcpTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Durat
 	if err := mbap.WriteFrame(t.conn, tid, slaveID, reqPDU); err != nil {
 		return nil, errTransport(fmt.Sprintf("TCP write: %v", err))
 	}
-	_, resp, err := mbap.ReadFrame(bufio.NewReader(t.conn))
+	resp, err := readMBAPResponse(t.conn, tid, slaveID)
 	if err != nil {
 		return nil, errTransport(fmt.Sprintf("TCP read: %v", err))
 	}
@@ -64,6 +62,25 @@ func (t *tcpTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Durat
 }
 
 func (t *tcpTransport) close() error { return t.conn.Close() }
+
+// Read directly from the connection: a temporary buffered reader can consume
+// bytes from the following frame and discard them when this exchange returns.
+func readMBAPResponse(r io.Reader, transactionID uint16, unitID uint8) ([]byte, error) {
+	header, response, err := mbap.ReadFrame(r)
+	if err != nil {
+		return nil, err
+	}
+	if header.TransactionID != transactionID {
+		return nil, fmt.Errorf("transaction ID mismatch: expected %d, got %d", transactionID, header.TransactionID)
+	}
+	if header.ProtocolID != 0 {
+		return nil, fmt.Errorf("invalid protocol ID: expected 0, got %d", header.ProtocolID)
+	}
+	if header.UnitID != unitID {
+		return nil, fmt.Errorf("unit ID mismatch: expected %d, got %d", unitID, header.UnitID)
+	}
+	return response, nil
+}
 
 // ---------------------------------------------------------------------------
 // TLS (MBAP over TLS) transport
@@ -144,7 +161,7 @@ func (t *tlsTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Durat
 	if err := mbap.WriteFrame(t.conn, tid, slaveID, reqPDU); err != nil {
 		return nil, errTransport(fmt.Sprintf("TLS write: %v", err))
 	}
-	_, resp, err := mbap.ReadFrame(bufio.NewReader(t.conn))
+	resp, err := readMBAPResponse(t.conn, tid, slaveID)
 	if err != nil {
 		return nil, errTransport(fmt.Sprintf("TLS read: %v", err))
 	}
@@ -323,12 +340,10 @@ func (t *rtuTCPTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Du
 	}
 
 	// Accumulate until the response CRC validates (rtu_tcp_master.rs).
+	// Keep the overall exchange deadline even when the response is fragmented.
 	var acc []byte
 	buf := make([]byte, 512)
 	for {
-		if err := t.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-			return nil, errTransport(err.Error())
-		}
 		n, err := t.conn.Read(buf)
 		if n > 0 {
 			acc = append(acc, buf[:n]...)
@@ -414,6 +429,3 @@ func sslmateDecodeChain(p12Bytes []byte, password string) (tls.Certificate, erro
 	}
 	return cert, nil
 }
-
-var _ = binary.BigEndian.Uint16
-var _ = io.Discard

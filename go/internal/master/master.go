@@ -5,6 +5,7 @@
 package master
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -99,39 +100,45 @@ func (s RequestSettings) Validate() error {
 // (request.rs). The gap starts at completion, not at acquire.
 type RequestPacer struct {
 	interval time.Duration
-	mu       sync.Mutex
-	// lastCompletion is the time the last in-flight request finished.
+	gate     chan struct{}
+	// lastCompletion is protected by the gate, held until release.
 	lastCompletion time.Time
 }
 
 // NewRequestPacer creates a pacer with the given interval (0 = no pacing).
 func NewRequestPacer(interval time.Duration) *RequestPacer {
-	return &RequestPacer{interval: interval}
+	p := &RequestPacer{interval: interval, gate: make(chan struct{}, 1)}
+	p.gate <- struct{}{}
+	return p
 }
 
-// Acquire waits until the connection has been quiet for the interval, then
-// returns a release func that must be called when the request completes.
-// If ctx is cancelled while waiting it returns ctx.Err().
+// Acquire serializes request/response cycles and waits for the quiet gap
+// after the previous request completes. Cancellation never sends a request.
 func (p *RequestPacer) Acquire(ctx context.Context) (func(), error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.interval > 0 && !p.lastCompletion.IsZero() {
-		deadline := p.lastCompletion.Add(p.interval)
-		wait := time.Until(deadline)
-		if wait > 0 {
-			select {
-			case <-time.After(wait):
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
+	select {
+	case <-p.gate:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		p.gate <- struct{}{}
+		return nil, err
+	}
+	if wait := time.Until(p.lastCompletion.Add(p.interval)); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			p.gate <- struct{}{}
+			return nil, ctx.Err()
 		}
 	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
-			p.mu.Lock()
 			p.lastCompletion = time.Now()
-			p.mu.Unlock()
+			p.gate <- struct{}{}
 		})
 	}, nil
 }
@@ -217,7 +224,7 @@ type Connection struct {
 	tr        transport
 	pacer     *RequestPacer
 	scanMu    sync.Mutex
-	scanTasks map[string]context.CancelFunc
+	scanTasks map[string]*scanTask
 	log       LogSink
 }
 
@@ -333,15 +340,11 @@ func (c *Connection) exchange(ctx context.Context, slaveID uint8, reqPDU []byte,
 		}
 		return nil, err
 	}
-	if len(resp) > 0 && resp[0]&0x80 != 0 {
-		exc := uint8(0)
-		if len(resp) > 1 {
-			exc = resp[1]
-		}
+	if err := validateResponseFunction(resp, fc); err != nil {
 		if c.log != nil {
-			c.log.AddRequest("rx", fc, fmt.Sprintf("ERR: exception 0x%02X", exc))
+			c.log.AddRequest("rx", fc, fmt.Sprintf("ERR: %v", err))
 		}
-		return nil, errException(exc)
+		return nil, err
 	}
 	if c.log != nil {
 		c.log.AddRequest("rx", fc, "OK")
@@ -356,6 +359,9 @@ func (c *Connection) Read(ctx context.Context, function ReadFunction, startAddre
 	settings := c.Config.Requests
 	if err := settings.Validate(); err != nil {
 		return nil, &Error{Kind: "invalid_config", Msg: err.Error()}
+	}
+	if function.FCByte() == 0 {
+		return nil, &Error{Kind: "invalid_config", Msg: "unsupported read function"}
 	}
 	if quantity == 0 || uint32(startAddress)+uint32(quantity) > 65536 {
 		return nil, &Error{Kind: "invalid_config", Msg: "read range must contain 1..65535 addresses and end at or before 65535"}
@@ -390,13 +396,13 @@ func (c *Connection) Read(ctx context.Context, function ReadFunction, startAddre
 			return nil, err
 		}
 		if function == ReadCoils || function == ReadDiscreteInputs {
-			if uint16(len(part.Bits)) < count {
-				return nil, errTransport("short bit response")
+			if len(part.Bits) != (int(count)+7)/8*8 {
+				return nil, errTransport("unexpected bit response length")
 			}
-			allBits = append(allBits, part.Bits...)
+			allBits = append(allBits, part.Bits[:count]...)
 		} else {
-			if uint16(len(part.Registers)) < count {
-				return nil, errTransport("short register response")
+			if len(part.Registers) != int(count) {
+				return nil, errTransport("unexpected register response length")
 			}
 			allRegs = append(allRegs, part.Registers...)
 		}
@@ -428,37 +434,58 @@ func (c *Connection) readOnce(ctx context.Context, function ReadFunction, addres
 	return parseReadResponse(function, resp)
 }
 
-// parseReadResponse decodes a read response PDU (mirrors
-// parse_read_response_pdu).
-func parseReadResponse(function ReadFunction, resp []byte) (*ReadResult, error) {
+// validateResponseFunction also decodes protocol exceptions for both direct
+// requests and polling. Malformed or unrelated exceptions are transport errors.
+func validateResponseFunction(resp []byte, expectedFC uint8) error {
 	if len(resp) == 0 {
-		return nil, errTransport("empty response")
+		return errTransport("empty response")
+	}
+	if resp[0] == expectedFC|0x80 {
+		if len(resp) != 2 {
+			return errTransport("invalid exception response length")
+		}
+		return errException(resp[1])
+	}
+	if resp[0] != expectedFC {
+		return errTransport(fmt.Sprintf("unexpected function code in response: expected 0x%02X, got 0x%02X", expectedFC, resp[0]))
+	}
+	return nil
+}
+
+// parseReadResponse validates and decodes a read response PDU.
+func parseReadResponse(function ReadFunction, resp []byte) (*ReadResult, error) {
+	if function.FCByte() == 0 {
+		return nil, errTransport("unsupported read function")
+	}
+	if err := validateResponseFunction(resp, function.FCByte()); err != nil {
+		return nil, err
+	}
+	if len(resp) < 2 {
+		return nil, errTransport("truncated read response")
 	}
 	byteCount := int(resp[1])
-	data := []byte(nil)
-	if len(resp) > 2 {
-		data = resp[2:]
+	if byteCount == 0 || len(resp) != byteCount+2 {
+		return nil, errTransport("invalid read response byte count")
 	}
+	data := resp[2:]
 	switch function {
 	case ReadCoils, ReadDiscreteInputs:
-		var bits []bool
-		for byteIdx := 0; byteIdx < byteCount; byteIdx++ {
-			for bitIdx := 0; bitIdx < 8; bitIdx++ {
-				if byteIdx < len(data) {
-					bits = append(bits, data[byteIdx]>>bitIdx&1 == 1)
-				}
-			}
+		bits := make([]bool, byteCount*8)
+		for i := range bits {
+			bits[i] = data[i/8]>>(i%8)&1 == 1
 		}
 		kind := "coils"
 		if function == ReadDiscreteInputs {
 			kind = "discrete_inputs"
 		}
 		return &ReadResult{Kind: kind, Bits: bits}, nil
-
 	default:
-		var regs []uint16
-		for i := 0; i+1 < len(data); i += 2 {
-			regs = append(regs, binary.BigEndian.Uint16(data[i:i+2]))
+		if byteCount%2 != 0 {
+			return nil, errTransport("odd register response byte count")
+		}
+		regs := make([]uint16, byteCount/2)
+		for i := range regs {
+			regs[i] = binary.BigEndian.Uint16(data[i*2 : i*2+2])
 		}
 		kind := "holding_registers"
 		if function == ReadInputRegisters {
@@ -466,6 +493,13 @@ func parseReadResponse(function ReadFunction, resp []byte) (*ReadResult, error) 
 		}
 		return &ReadResult{Kind: kind, Registers: regs}, nil
 	}
+}
+
+func validateWriteRange(address uint16, count, limit int) error {
+	if count < 1 || count > limit || uint64(address)+uint64(count) > 65536 {
+		return &Error{Kind: "invalid_config", Msg: fmt.Sprintf("write range must contain 1..%d addresses and end at or before 65535", limit)}
+	}
+	return nil
 }
 
 // WriteSingleCoil writes one coil (FC05).
@@ -481,11 +515,11 @@ func (c *Connection) WriteSingleCoil(ctx context.Context, address uint16, value 
 	reqPDU = append(reqPDU, ab[:]...)
 
 	timeout := time.Duration(c.Config.TimeoutMs) * time.Millisecond
-	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x05, fmt.Sprintf("W %d = %v", address, value))
+	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x05, fmt.Sprintf("slave %d W %d = %v", c.Config.SlaveID, address, value))
 	if err != nil {
 		return err
 	}
-	return checkWriteResponse(resp, 0x05)
+	return checkWriteEcho(resp, reqPDU[:5])
 }
 
 // WriteSingleRegister writes one holding register (FC06).
@@ -497,15 +531,18 @@ func (c *Connection) WriteSingleRegister(ctx context.Context, address, value uin
 	reqPDU = append(reqPDU, ab[:]...)
 
 	timeout := time.Duration(c.Config.TimeoutMs) * time.Millisecond
-	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x06, fmt.Sprintf("W %d = 0x%04X", address, value))
+	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x06, fmt.Sprintf("slave %d W %d = 0x%04X", c.Config.SlaveID, address, value))
 	if err != nil {
 		return err
 	}
-	return checkWriteResponse(resp, 0x06)
+	return checkWriteEcho(resp, reqPDU[:5])
 }
 
 // WriteMultipleCoils writes a coil range (FC15).
 func (c *Connection) WriteMultipleCoils(ctx context.Context, address uint16, values []bool) error {
+	if err := validateWriteRange(address, len(values), 1968); err != nil {
+		return err
+	}
 	quantity := uint16(len(values))
 	byteCount := (len(values) + 7) / 8
 	coilBytes := make([]byte, byteCount)
@@ -523,15 +560,18 @@ func (c *Connection) WriteMultipleCoils(ctx context.Context, address uint16, val
 	reqPDU = append(reqPDU, coilBytes...)
 
 	timeout := time.Duration(c.Config.TimeoutMs) * time.Millisecond
-	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x0F, fmt.Sprintf("W %d x%d", address, len(values)))
+	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x0F, fmt.Sprintf("slave %d W %d x%d", c.Config.SlaveID, address, len(values)))
 	if err != nil {
 		return err
 	}
-	return checkWriteResponse(resp, 0x0F)
+	return checkWriteEcho(resp, reqPDU[:5])
 }
 
 // WriteMultipleRegisters writes a register range (FC16).
 func (c *Connection) WriteMultipleRegisters(ctx context.Context, address uint16, values []uint16) error {
+	if err := validateWriteRange(address, len(values), 123); err != nil {
+		return err
+	}
 	reqPDU := []byte{0x10}
 	var ab [4]byte
 	binary.BigEndian.PutUint16(ab[0:2], address)
@@ -545,27 +585,30 @@ func (c *Connection) WriteMultipleRegisters(ctx context.Context, address uint16,
 	}
 
 	timeout := time.Duration(c.Config.TimeoutMs) * time.Millisecond
-	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x10, fmt.Sprintf("W %d x%d", address, len(values)))
+	resp, err := c.exchange(ctx, c.Config.SlaveID, reqPDU, timeout, 0x10, fmt.Sprintf("slave %d W %d x%d", c.Config.SlaveID, address, len(values)))
 	if err != nil {
 		return err
 	}
-	return checkWriteResponse(resp, 0x10)
+	return checkWriteEcho(resp, reqPDU[:5])
 }
 
 // checkWriteResponse validates a write echo (mirrors check_write_response).
 func checkWriteResponse(resp []byte, expectedFC uint8) error {
-	if len(resp) == 0 {
-		return errTransport("empty response")
+	if err := validateResponseFunction(resp, expectedFC); err != nil {
+		return err
 	}
-	if resp[0]&0x80 != 0 {
-		exc := uint8(0)
-		if len(resp) > 1 {
-			exc = resp[1]
-		}
-		return errException(exc)
+	if len(resp) != 5 {
+		return errTransport("invalid write response length")
 	}
-	if resp[0] != expectedFC {
-		return errTransport(fmt.Sprintf("unexpected function code in response: expected 0x%02X, got 0x%02X", expectedFC, resp[0]))
+	return nil
+}
+
+func checkWriteEcho(resp, expected []byte) error {
+	if err := checkWriteResponse(resp, expected[0]); err != nil {
+		return err
+	}
+	if !bytes.Equal(resp, expected) {
+		return errTransport("write response does not match request address and value/quantity")
 	}
 	return nil
 }

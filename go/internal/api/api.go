@@ -135,7 +135,7 @@ func (s *Server) listConnections(w http.ResponseWriter, _ *http.Request) {
 }
 
 type createConnectionRequest struct {
-	SlaveID   uint8              `json:"slave_id"`
+	SlaveID   *uint8             `json:"slave_id"`
 	Name      string             `json:"name"`
 	Transport transportDTO       `json:"transport"`
 	UseTLS    bool               `json:"use_tls"`
@@ -148,14 +148,19 @@ func (s *Server) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.SlaveID == 0 {
-		req.SlaveID = 1
+	slaveID := uint8(1)
+	if req.SlaveID != nil {
+		slaveID = *req.SlaveID
+	}
+	if slaveID < 1 || slaveID > 247 {
+		writeErr(w, http.StatusBadRequest, errors.New("slave_id must be between 1 and 247"))
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := s.state.NextConnectionID()
 	conn := app.NewConnection(transportFromDTO(req.Transport), req.ServerTLS)
-	if err := conn.AddDevice(req.SlaveID, req.Name, ""); err != nil {
+	if err := conn.AddDevice(slaveID, req.Name, ""); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -243,12 +248,12 @@ func (s *Server) removeDevice(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errors.New("connection not found"))
 		return
 	}
-	id, err := strconv.ParseUint(r.PathValue("slaveId"), 10, 8)
+	id, err := requestSlaveID(r, nil)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := conn.RemoveDevice(uint8(id)); err != nil {
+	if err := conn.RemoveDevice(id); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -280,12 +285,12 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listRegisters(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	slaveID, err := strconv.ParseUint(r.PathValue("slaveId"), 10, 8)
+	slaveID, err := requestSlaveID(r, nil)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	defs, err := s.state.ListRegisters(id, uint8(slaveID))
+	defs, err := s.state.ListRegisters(id, slaveID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err)
 		return
@@ -295,19 +300,37 @@ func (s *Server) listRegisters(w http.ResponseWriter, r *http.Request) {
 
 type registerOpRequest struct {
 	app.AddRegisterRequest
-	OriginalAddress uint16 `json:"original_address,omitempty"`
-	OriginalType    string `json:"original_register_type,omitempty"`
+	BodyConnectionID *string `json:"connection_id"`
+	BodySlaveID      *uint8  `json:"slave_id"`
+	OriginalAddress  uint16  `json:"original_address,omitempty"`
+	OriginalType     string  `json:"original_register_type,omitempty"`
+}
+
+func (req *registerOpRequest) applyTarget(r *http.Request) error {
+	id := r.PathValue("id")
+	if req.BodyConnectionID != nil && *req.BodyConnectionID != id {
+		return fmt.Errorf("connection_id in body must match URL")
+	}
+	slaveID, err := requestSlaveID(r, req.BodySlaveID)
+	if err != nil {
+		return err
+	}
+	req.AddRegisterRequest.ConnectionID = id
+	req.AddRegisterRequest.SlaveID = slaveID
+	return nil
 }
 
 func (s *Server) addRegister(w http.ResponseWriter, r *http.Request) {
-	// The connection comes from the body's connection_id; keep parity with
-	// the Tauri command shape.
-	var req app.AddRegisterRequest
+	var req registerOpRequest
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.state.AddRegister(req); err != nil {
+	if err := req.applyTarget(r); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.state.AddRegister(req.AddRegisterRequest); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -317,6 +340,10 @@ func (s *Server) addRegister(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerOpRequest
 	if err := decode(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := req.applyTarget(r); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -333,7 +360,12 @@ func (s *Server) removeRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.state.RemoveRegister(r.PathValue("id"), uint8(mustSlaveID(r)), uint16(addr), r.PathValue("type")); err != nil {
+	slaveID, err := requestSlaveID(r, nil)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.state.RemoveRegister(r.PathValue("id"), slaveID, uint16(addr), r.PathValue("type")); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -341,7 +373,7 @@ func (s *Server) removeRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 type readRequest struct {
-	SlaveID uint8  `json:"slave_id"`
+	SlaveID *uint8 `json:"slave_id"`
 	Type    string `json:"register_type"`
 	Address uint16 `json:"address"`
 	Count   uint16 `json:"count"`
@@ -362,14 +394,23 @@ func (s *Server) readRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	slaveID, err := requestSlaveID(r, req.SlaveID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	rt, err := ParseRegisterTypeString(req.Type)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	if req.Count == 0 || uint32(req.Address)+uint32(req.Count) > 65536 {
+		writeErr(w, http.StatusBadRequest, errors.New("read range must contain at least one address and end at or before 65535"))
+		return
+	}
 	values := make([]uint16, 0, req.Count)
 	for i := uint16(0); i < req.Count; i++ {
-		v, ok := conn.ReadRegisterValue(req.SlaveID, rt, req.Address+i)
+		v, ok := conn.ReadRegisterValue(slaveID, rt, req.Address+i)
 		if !ok {
 			writeErr(w, http.StatusNotFound, fmt.Errorf("register %s@%d not found", req.Type, req.Address+i))
 			return
@@ -380,7 +421,7 @@ func (s *Server) readRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 type writeRequest struct {
-	SlaveID uint8  `json:"slave_id"`
+	SlaveID *uint8 `json:"slave_id"`
 	Type    string `json:"register_type"`
 	Address uint16 `json:"address"`
 	Value   uint16 `json:"value"`
@@ -393,7 +434,12 @@ func (s *Server) writeRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.state.WriteRegister(id, req.SlaveID, register.RegisterType(req.Type), req.Address, req.Value); err != nil {
+	slaveID, err := requestSlaveID(r, req.SlaveID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.state.WriteRegister(id, slaveID, register.RegisterType(req.Type), req.Address, req.Value); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}

@@ -29,11 +29,15 @@ func ParseRegisterTypeString(s string) (register.RegisterType, error) {
 // datasourceConfig is the wire form of datasource.Config (same JSON shape).
 type datasourceConfig = datasource.Config
 
-// mustSlaveID parses the slaveId path value, defaulting to 1 on error.
-func mustSlaveID(r *http.Request) uint64 {
+// requestSlaveID validates the URL target and rejects a conflicting legacy body
+// target. An omitted body target uses the device selected by the URL.
+func requestSlaveID(r *http.Request, bodyID *uint8) (uint8, error) {
 	id, err := strconv.ParseUint(r.PathValue("slaveId"), 10, 8)
-	if err != nil {
-		return 1
+	if err != nil || id < 1 || id > 247 {
+		return 0, fmt.Errorf("slave_id in URL must be between 1 and 247")
 	}
-	return id
+	if bodyID != nil && uint64(*bodyID) != id {
+		return 0, fmt.Errorf("slave_id in body must match URL")
+	}
+	return uint8(id), nil
 }

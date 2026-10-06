@@ -249,7 +249,7 @@ func (c *Connection) DeviceCount() int {
 // AddDevice adds a device, optionally pre-filling default points
 // (initMode "random" is accepted and treated as default registers).
 func (c *Connection) AddDevice(slaveID uint8, name, initMode string) error {
-	if slaveID == 0 {
+	if slaveID < 1 || slaveID > 247 {
 		return fmt.Errorf("slave_id must be between 1 and 247")
 	}
 	maxAddr := uint16(20000)
@@ -274,60 +274,12 @@ func (c *Connection) ListDevices() []uint8 {
 
 // ReadRegisterValue reads one register value by type and address.
 func (c *Connection) ReadRegisterValue(slaveID uint8, rt register.RegisterType, addr uint16) (uint16, bool) {
-	dev, ok := c.server.GetDevice(slaveID)
-	if !ok {
-		return 0, false
-	}
-	switch rt {
-	case register.Coil:
-		v := dev.RegisterMap.ReadCoils(addr, 1)
-		if len(v) == 0 {
-			return 0, false
-		}
-		if v[0] {
-			return 1, true
-		}
-		return 0, true
-	case register.DiscreteInput:
-		v := dev.RegisterMap.ReadDiscreteInputs(addr, 1)
-		if len(v) == 0 {
-			return 0, false
-		}
-		if v[0] {
-			return 1, false
-		}
-		return 0, true
-	case register.HoldingRegType:
-		v := dev.RegisterMap.ReadHoldingRegisters(addr, 1)
-		if len(v) == 0 {
-			return 0, false
-		}
-		return v[0], true
-	case register.InputRegister:
-		v := dev.RegisterMap.ReadInputRegisters(addr, 1)
-		if len(v) == 0 {
-			return 0, false
-		}
-		return v[0], true
-	}
-	return 0, false
+	return c.server.ReadRegisterValue(slaveID, rt, addr)
 }
 
 // WriteRegisterValue writes one register value by type and address.
 func (c *Connection) WriteRegisterValue(slaveID uint8, rt register.RegisterType, addr, value uint16) error {
-	dev, ok := c.server.GetDevice(slaveID)
-	if !ok {
-		return fmt.Errorf("device %d not found", slaveID)
-	}
-	switch rt {
-	case register.Coil:
-		dev.RegisterMap.WriteCoil(addr, value != 0)
-		return nil
-	case register.HoldingRegType:
-		dev.RegisterMap.WriteHoldingRegister(addr, value)
-		return nil
-	}
-	return fmt.Errorf("register type %s is read-only", rt)
+	return c.server.WriteRegisterValue(slaveID, rt, addr, value)
 }
 
 // connAddr renders a TCP address for a transport (helper for tests).
