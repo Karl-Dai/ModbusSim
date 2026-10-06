@@ -423,6 +423,9 @@ const messages: Messages = {
     deleteRegister: 'Delete Register',
   },
   valuePanel: {
+    writeTarget: 'Write target: Slave ID {id} (scan group)',
+    writeDefaultTarget: 'Write target: connection’s default Slave ID',
+    contiguousHint: 'Select consecutive registers to parse or write a multi-word value',
     title: 'Value Parser',
     selectHint: 'Select a register to view details',
     mixedTypeHint: 'Mixed register types selected — cannot parse combined',

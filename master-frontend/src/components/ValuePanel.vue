@@ -34,6 +34,15 @@ const allSameType = computed(() => {
   return sortedRegs.value.every(r => r.is_bool === t)
 })
 
+const contiguousSelection = computed(() => allSameType.value && sortedRegs.value.every((reg, index, regs) =>
+  Number.isInteger(reg.address) && reg.address >= 0 && reg.address <= 65535
+  && (index === 0 || reg.address === regs[index - 1].address + 1),
+))
+const writeSlaveId = computed(() => selectedScanGroup.value?.slave_id ?? null)
+const writeTarget = computed(() => writeSlaveId.value === null
+  ? t('valuePanel.writeDefaultTarget')
+  : t('valuePanel.writeTarget', { id: writeSlaveId.value }))
+
 // Editing state
 const editingField = ref<string | null>(null)
 const editValue = ref('')
@@ -65,7 +74,7 @@ const rawValue = computed(() => firstReg.value ? Number(firstReg.value.raw_value
 const { signed16, unsigned16, hex16, binary16 } = use16BitFormat(rawValue)
 
 // 32-bit
-const show32bit = computed(() => selCount.value >= 2 && allSameType.value && !isBoolType.value)
+const show32bit = computed(() => selCount.value >= 2 && contiguousSelection.value && !isBoolType.value)
 
 const reg32Hi = computed(() => show32bit.value ? Number(sortedRegs.value[0].raw_value) & 0xFFFF : 0)
 const reg32Lo = computed(() => show32bit.value ? Number(sortedRegs.value[1].raw_value) & 0xFFFF : 0)
@@ -73,7 +82,7 @@ const { longABCD, longCDAB, longBADC, longDCBA, floatABCD, floatCDAB, floatBADC,
   use32BitFormat(reg32Hi, reg32Lo, show32bit)
 
 // 64-bit
-const show64bit = computed(() => selCount.value >= 4 && allSameType.value && !isBoolType.value)
+const show64bit = computed(() => selCount.value >= 4 && contiguousSelection.value && !isBoolType.value)
 
 const reg64Values = computed(() => {
   if (!show64bit.value) return [0, 0, 0, 0]
@@ -98,8 +107,15 @@ function cancelEdit() {
   editReady.value = false
 }
 
-// Only cancel edit when selected register addresses change, not on poll value updates
-watch(() => selectedRegisters.value.map(r => r.address).join(','), () => cancelEdit())
+// Cancel before a blur/Enter can send an edit to a new selection or target.
+// Poll value updates alone must not interrupt editing.
+watch(() => [
+  selectedConnectionId.value,
+  selectedScanGroup.value?.id,
+  selectedScanGroup.value?.function,
+  writeSlaveId.value,
+  selectedRegisters.value.map(r => `${r.address}:${r.is_bool}`).join(','),
+], () => cancelEdit(), { flush: 'sync' })
 
 function reverseParseField(field: string, input: string): { address: number; value: number }[] | null {
   const regs = sortedRegs.value
@@ -121,7 +137,7 @@ function reverseParseField(field: string, input: string): { address: number; val
 
   // 32-bit Long
   if (field === 'longABCD' || field === 'longCDAB' || field === 'longBADC' || field === 'longDCBA') {
-    if (regs.length < 2) return null; const n = Number(input); if (isNaN(n)) return null
+    if (!show32bit.value) return null; const n = Number(input); if (isNaN(n)) return null
     const u = n >>> 0; const hi = (u >>> 16) & 0xFFFF; const lo = u & 0xFFFF
     const map: Record<string, [number, number]> = { longABCD: [hi, lo], longCDAB: [lo, hi], longBADC: [swapBytes16(hi), swapBytes16(lo)], longDCBA: [swapBytes16(lo), swapBytes16(hi)] }
     const [r0, r1] = map[field]
@@ -130,7 +146,7 @@ function reverseParseField(field: string, input: string): { address: number; val
 
   // 32-bit Float
   if (field === 'floatABCD' || field === 'floatCDAB' || field === 'floatBADC' || field === 'floatDCBA') {
-    if (regs.length < 2) return null; const n = parseFloat(input); if (isNaN(n)) return null
+    if (!show32bit.value) return null; const n = parseFloat(input); if (isNaN(n)) return null
     const order = field.replace('float', '') as ByteOrder
     const [r0, r1] = float32ToU16Pair(n, order)
     return [{ address: regs[0].address, value: r0 }, { address: regs[1].address, value: r1 }]
@@ -138,7 +154,7 @@ function reverseParseField(field: string, input: string): { address: number; val
 
   // 64-bit Double
   if (field === 'double' || field === 'doubleReversed' || field === 'doubleByteSwap' || field === 'doubleLittleEndian') {
-    if (regs.length < 4) return null
+    if (!show64bit.value) return null
     const n = parseFloat(input); if (isNaN(n)) return null
     const buf = new ArrayBuffer(8); const view = new DataView(buf); view.setFloat64(0, n)
     const w = [view.getUint16(0), view.getUint16(2), view.getUint16(4), view.getUint16(6)]
@@ -156,30 +172,39 @@ function reverseParseField(field: string, input: string): { address: number; val
 async function writeRegisters(writes: { address: number; value: number }[]) {
   if (!selectedConnectionId.value) return
   const category = writeCategory.value
-  if (!category) return
+  if (!category || writes.length === 0) return
+  // FC15/FC16 carry a start address and packed values: never discard holes,
+  // duplicate/reversed addresses, or registers outside the current selection.
+  if (!allSameType.value || (category === 'coil') !== isBoolType.value
+    || (writes.length > 1 && !contiguousSelection.value)
+    || writes.some((write, index) => !Number.isInteger(write.address)
+      || write.address < 0 || write.address > 65535
+      || (index > 0 && write.address !== writes[index - 1].address + 1)
+      || !sortedRegs.value.some(reg => reg.address === write.address))) return
+  const slave_id = writeSlaveId.value
   try {
     if (category === 'register') {
       if (writes.length === 1) {
         await invoke('write_single_register', {
           connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, value: writes[0].value }
+          request: { slave_id, address: writes[0].address, value: writes[0].value }
         })
       } else {
         await invoke('write_multiple_registers', {
           connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, values: writes.map(w => w.value) }
+          request: { slave_id, address: writes[0].address, values: writes.map(w => w.value) }
         })
       }
     } else if (category === 'coil') {
       if (writes.length === 1) {
         await invoke('write_single_coil', {
           connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, value: writes[0].value !== 0 }
+          request: { slave_id, address: writes[0].address, value: writes[0].value !== 0 }
         })
       } else {
         await invoke('write_multiple_coils', {
           connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, values: writes.map(w => w.value !== 0) }
+          request: { slave_id, address: writes[0].address, values: writes.map(w => w.value !== 0) }
         })
       }
     }
@@ -237,6 +262,9 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
 
     <template v-else>
       <div class="panel-title">{{ panelTitle }}</div>
+      <div class="panel-hint write-target">{{ writeTarget }}</div>
+      <div v-if="!allSameType" class="panel-hint">{{ t('valuePanel.mixedTypeHint') }}</div>
+      <div v-else-if="selCount > 1 && !isBoolType && !contiguousSelection" class="panel-hint">{{ t('valuePanel.contiguousHint') }}</div>
       <div v-if="selectedScanGroup?.function === 'read_input_registers'" class="panel-hint">{{ t('valuePanel.writeHintInputReg') }}</div>
       <div v-else-if="selectedScanGroup?.function === 'read_discrete_inputs'" class="panel-hint">{{ t('valuePanel.writeHintDiscrete') }}</div>
 

@@ -373,20 +373,41 @@ impl MasterConnection {
         .await
     }
 
+    fn resolve_write_slave_id(&self, slave_id: Option<u8>) -> Result<u8, MasterError> {
+        if slave_id.is_some_and(|id| !(1..=247).contains(&id)) {
+            return Err(MasterError::InvalidConfig(
+                "slave ID must be between 1 and 247".into(),
+            ));
+        }
+        Ok(slave_id.unwrap_or(self.config.slave_id))
+    }
+
     /// Write a single coil (FC05).
     pub async fn write_single_coil(&self, address: u16, value: bool) -> Result<(), MasterError> {
+        self.write_single_coil_with_slave(None, address, value)
+            .await
+    }
+
+    /// Write with an optional slave ID override (1..=247); `None` uses the connection default.
+    pub async fn write_single_coil_with_slave(
+        &self,
+        slave_id: Option<u8>,
+        address: u16,
+        value: bool,
+    ) -> Result<(), MasterError> {
+        let slave_id = self.resolve_write_slave_id(slave_id)?;
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
         let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteSingleCoil,
-            &format!("W {} = {}", address, value),
+            &format!("Slave {slave_id}: W {} = {}", address, value),
         )
         .await;
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
-                ctx.set_slave(Slave(self.config.slave_id));
+                ctx.set_slave(Slave(slave_id));
                 tokio::time::timeout(timeout, ctx.write_single_coil(address, value))
                     .await
                     .map_err(|_| MasterError::Timeout("Write single coil timed out".into()))?
@@ -394,7 +415,7 @@ impl MasterConnection {
                     .map_err(MasterError::Exception)?;
             }
             TransportCtx::TcpTls(tls) => {
-                tls.write_single_coil(self.config.slave_id, address, value, timeout)
+                tls.write_single_coil(slave_id, address, value, timeout)
                     .await?;
             }
             other => {
@@ -402,8 +423,7 @@ impl MasterConnection {
                 let mut pdu = vec![0x05];
                 pdu.extend_from_slice(&address.to_be_bytes());
                 pdu.extend_from_slice(&coil_value.to_be_bytes());
-                let resp =
-                    send_pdu_via_transport(other, self.config.slave_id, &pdu, timeout).await?;
+                let resp = send_pdu_via_transport(other, slave_id, &pdu, timeout).await?;
                 check_write_response(&resp, 0x05)?;
             }
         }
@@ -412,18 +432,30 @@ impl MasterConnection {
 
     /// Write a single holding register (FC06).
     pub async fn write_single_register(&self, address: u16, value: u16) -> Result<(), MasterError> {
+        self.write_single_register_with_slave(None, address, value)
+            .await
+    }
+
+    /// Write with an optional slave ID override (1..=247); `None` uses the connection default.
+    pub async fn write_single_register_with_slave(
+        &self,
+        slave_id: Option<u8>,
+        address: u16,
+        value: u16,
+    ) -> Result<(), MasterError> {
+        let slave_id = self.resolve_write_slave_id(slave_id)?;
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
         let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteSingleRegister,
-            &format!("W {} = {:#06x}", address, value),
+            &format!("Slave {slave_id}: W {} = {:#06x}", address, value),
         )
         .await;
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
-                ctx.set_slave(Slave(self.config.slave_id));
+                ctx.set_slave(Slave(slave_id));
                 tokio::time::timeout(timeout, ctx.write_single_register(address, value))
                     .await
                     .map_err(|_| MasterError::Timeout("Write single register timed out".into()))?
@@ -431,15 +463,14 @@ impl MasterConnection {
                     .map_err(MasterError::Exception)?;
             }
             TransportCtx::TcpTls(tls) => {
-                tls.write_single_register(self.config.slave_id, address, value, timeout)
+                tls.write_single_register(slave_id, address, value, timeout)
                     .await?;
             }
             other => {
                 let mut pdu = vec![0x06];
                 pdu.extend_from_slice(&address.to_be_bytes());
                 pdu.extend_from_slice(&value.to_be_bytes());
-                let resp =
-                    send_pdu_via_transport(other, self.config.slave_id, &pdu, timeout).await?;
+                let resp = send_pdu_via_transport(other, slave_id, &pdu, timeout).await?;
                 check_write_response(&resp, 0x06)?;
             }
         }
@@ -452,18 +483,30 @@ impl MasterConnection {
         address: u16,
         values: &[bool],
     ) -> Result<(), MasterError> {
+        self.write_multiple_coils_with_slave(None, address, values)
+            .await
+    }
+
+    /// Write with an optional slave ID override (1..=247); `None` uses the connection default.
+    pub async fn write_multiple_coils_with_slave(
+        &self,
+        slave_id: Option<u8>,
+        address: u16,
+        values: &[bool],
+    ) -> Result<(), MasterError> {
+        let slave_id = self.resolve_write_slave_id(slave_id)?;
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
         let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteMultipleCoils,
-            &format!("W {} x{}", address, values.len()),
+            &format!("Slave {slave_id}: W {} x{}", address, values.len()),
         )
         .await;
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
-                ctx.set_slave(Slave(self.config.slave_id));
+                ctx.set_slave(Slave(slave_id));
                 tokio::time::timeout(timeout, ctx.write_multiple_coils(address, values))
                     .await
                     .map_err(|_| MasterError::Timeout("Write multiple coils timed out".into()))?
@@ -471,7 +514,7 @@ impl MasterConnection {
                     .map_err(MasterError::Exception)?;
             }
             TransportCtx::TcpTls(tls) => {
-                tls.write_multiple_coils(self.config.slave_id, address, values, timeout)
+                tls.write_multiple_coils(slave_id, address, values, timeout)
                     .await?;
             }
             other => {
@@ -488,8 +531,7 @@ impl MasterConnection {
                 pdu.extend_from_slice(&quantity.to_be_bytes());
                 pdu.push(byte_count as u8);
                 pdu.extend_from_slice(&coil_bytes);
-                let resp =
-                    send_pdu_via_transport(other, self.config.slave_id, &pdu, timeout).await?;
+                let resp = send_pdu_via_transport(other, slave_id, &pdu, timeout).await?;
                 check_write_response(&resp, 0x0F)?;
             }
         }
@@ -502,18 +544,30 @@ impl MasterConnection {
         address: u16,
         values: &[u16],
     ) -> Result<(), MasterError> {
+        self.write_multiple_registers_with_slave(None, address, values)
+            .await
+    }
+
+    /// Write with an optional slave ID override (1..=247); `None` uses the connection default.
+    pub async fn write_multiple_registers_with_slave(
+        &self,
+        slave_id: Option<u8>,
+        address: u16,
+        values: &[u16],
+    ) -> Result<(), MasterError> {
+        let slave_id = self.resolve_write_slave_id(slave_id)?;
         let transport_ctx = self.get_transport_ctx()?;
         let timeout = self.timeout_duration();
         let _permit = self.request_pacer.acquire().await;
         self.log_tx(
             FunctionCode::WriteMultipleRegisters,
-            &format!("W {} x{}", address, values.len()),
+            &format!("Slave {slave_id}: W {} x{}", address, values.len()),
         )
         .await;
         match &transport_ctx {
             TransportCtx::Tcp(ctx) => {
                 let mut ctx = ctx.lock().await;
-                ctx.set_slave(Slave(self.config.slave_id));
+                ctx.set_slave(Slave(slave_id));
                 tokio::time::timeout(timeout, ctx.write_multiple_registers(address, values))
                     .await
                     .map_err(|_| MasterError::Timeout("Write multiple registers timed out".into()))?
@@ -521,7 +575,7 @@ impl MasterConnection {
                     .map_err(MasterError::Exception)?;
             }
             TransportCtx::TcpTls(tls) => {
-                tls.write_multiple_registers(self.config.slave_id, address, values, timeout)
+                tls.write_multiple_registers(slave_id, address, values, timeout)
                     .await?;
             }
             other => {
@@ -534,8 +588,7 @@ impl MasterConnection {
                 for v in values {
                     pdu.extend_from_slice(&v.to_be_bytes());
                 }
-                let resp =
-                    send_pdu_via_transport(other, self.config.slave_id, &pdu, timeout).await?;
+                let resp = send_pdu_via_transport(other, slave_id, &pdu, timeout).await?;
                 check_write_response(&resp, 0x10)?;
             }
         }
