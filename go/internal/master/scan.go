@@ -6,6 +6,7 @@ package master
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ type ScanGroup struct {
 
 // Validate mirrors ScanGroup::validate.
 func (g *ScanGroup) Validate() error {
+	if g.Function.FCByte() == 0 {
+		return fmt.Errorf("unsupported read function")
+	}
 	if g.Quantity == 0 || uint32(g.StartAddress)+uint32(g.Quantity) > 65536 {
 		return fmt.Errorf("read range must contain 1..65535 addresses and end at or before 65535")
 	}
@@ -62,9 +66,6 @@ func (c *Connection) StartScanGroup(group *ScanGroup) (<-chan PollEvent, error) 
 	if err := c.Config.Requests.Validate(); err != nil {
 		return nil, &Error{Kind: "invalid_config", Msg: err.Error()}
 	}
-	// Stop existing poll for this group if any.
-	_ = c.StopScanGroup(group.ID)
-
 	tr, err := c.getTransport()
 	if err != nil {
 		return nil, err
@@ -78,26 +79,35 @@ func (c *Connection) StartScanGroup(group *ScanGroup) (<-chan PollEvent, error) 
 		slaveID = *group.SlaveID
 	}
 
-	go c.pollLoop(ctx, tr, events, slaveID, group)
-
+	task := &scanTask{cancel: cancel, events: events}
 	c.scanMu.Lock()
 	if c.scanTasks == nil {
-		c.scanTasks = map[string]context.CancelFunc{}
+		c.scanTasks = map[string]*scanTask{}
 	}
-	c.scanTasks[group.ID] = cancel
+	previous := c.scanTasks[group.ID]
+	c.scanTasks[group.ID] = task
 	c.scanMu.Unlock()
+	if previous != nil {
+		previous.cancel()
+	}
 
+	// Own a snapshot: later caller edits must not change a running scan.
+	groupCopy := *group
+	go c.pollLoop(ctx, tr, task, slaveID, &groupCopy)
 	return events, nil
 }
 
 // pollLoop runs the periodic read for one scan group.
-func (c *Connection) pollLoop(ctx context.Context, tr transport, events chan PollEvent, slaveID uint8, group *ScanGroup) {
+func (c *Connection) pollLoop(ctx context.Context, tr transport, task *scanTask, slaveID uint8, group *ScanGroup) {
+	events := task.events
 	defer func() {
 		c.scanMu.Lock()
-		delete(c.scanTasks, group.ID)
+		if c.scanTasks[group.ID] == task {
+			delete(c.scanTasks, group.ID)
+		}
 		c.scanMu.Unlock()
+		close(events)
 	}()
-	defer close(events)
 	interval := time.Duration(group.IntervalMs) * time.Millisecond
 	transportErrStreak := 0
 
@@ -111,7 +121,9 @@ func (c *Connection) pollLoop(ctx context.Context, tr transport, events chan Pol
 
 		if err == nil {
 			transportErrStreak = 0
-		} else if e, ok := err.(*Error); !ok || e.Kind != "exception" {
+		} else if e, ok := err.(*Error); ok && e.Kind == "exception" {
+			transportErrStreak = 0
+		} else {
 			transportErrStreak++
 		}
 
@@ -144,6 +156,12 @@ func (c *Connection) pollLoop(ctx context.Context, tr transport, events chan Pol
 // the poll keeps the transport it started with).
 func (c *Connection) readWithTransport(ctx context.Context, tr transport, slaveID uint8, function ReadFunction, startAddress, quantity uint16) (*ReadResult, error) {
 	settings := c.Config.Requests
+	if err := settings.Validate(); err != nil {
+		return nil, &Error{Kind: "invalid_config", Msg: err.Error()}
+	}
+	if function.FCByte() == 0 || quantity == 0 || uint32(startAddress)+uint32(quantity) > 65536 {
+		return nil, &Error{Kind: "invalid_config", Msg: "invalid read function or address range"}
+	}
 	limit := settings.MaxReadRegisters
 	kind := "holding_registers"
 	if function == ReadCoils || function == ReadDiscreteInputs {
@@ -173,14 +191,10 @@ func (c *Connection) readWithTransport(ctx context.Context, tr transport, slaveI
 			return nil, err
 		}
 		reqPDU := []byte{function.FCByte()}
-		reqPDU = append(reqPDU, byte(startAddress>>8&0xFF), 0, 0)
 		// address & count big-endian
-		reqPDU = reqPDU[:1]
 		var ab [4]byte
-		ab[0] = byte(uint32(startAddress) + offset>>8)
-		ab[1] = byte(uint32(startAddress) + offset)
-		ab[2] = byte(count >> 8)
-		ab[3] = byte(count)
+		binary.BigEndian.PutUint16(ab[0:2], uint16(uint32(startAddress)+offset))
+		binary.BigEndian.PutUint16(ab[2:4], count)
 		reqPDU = append(reqPDU, ab[:]...)
 
 		timeout := time.Duration(c.Config.TimeoutMs) * time.Millisecond
@@ -211,13 +225,13 @@ func (c *Connection) readWithTransport(ctx context.Context, tr transport, slaveI
 			return nil, err
 		}
 		if function == ReadCoils || function == ReadDiscreteInputs {
-			if uint16(len(part.Bits)) < count {
-				return nil, errTransport("short bit response")
+			if len(part.Bits) != (int(count)+7)/8*8 {
+				return nil, errTransport("unexpected bit response length")
 			}
-			allBits = append(allBits, part.Bits...)
+			allBits = append(allBits, part.Bits[:count]...)
 		} else {
-			if uint16(len(part.Registers)) < count {
-				return nil, errTransport("short register response")
+			if len(part.Registers) != int(count) {
+				return nil, errTransport("unexpected register response length")
 			}
 			allRegs = append(allRegs, part.Registers...)
 		}
@@ -253,13 +267,13 @@ func (c *Connection) SetConnectionLostCallback(cb func()) {
 // StopScanGroup stops one scan group's polling task (idempotent).
 func (c *Connection) StopScanGroup(groupID string) error {
 	c.scanMu.Lock()
-	cancel, ok := c.scanTasks[groupID]
+	task, ok := c.scanTasks[groupID]
 	if ok {
 		delete(c.scanTasks, groupID)
 	}
 	c.scanMu.Unlock()
 	if ok {
-		cancel()
+		task.cancel()
 	}
 	return nil
 }
@@ -268,10 +282,10 @@ func (c *Connection) StopScanGroup(groupID string) error {
 func (c *Connection) StopAllScans() {
 	c.scanMu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(c.scanTasks))
-	for _, cancel := range c.scanTasks {
-		cancels = append(cancels, cancel)
+	for _, task := range c.scanTasks {
+		cancels = append(cancels, task.cancel)
 	}
-	c.scanTasks = map[string]context.CancelFunc{}
+	c.scanTasks = map[string]*scanTask{}
 	c.scanMu.Unlock()
 	for _, cancel := range cancels {
 		cancel()
