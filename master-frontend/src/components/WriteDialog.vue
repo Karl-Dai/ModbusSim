@@ -5,8 +5,11 @@ import { useI18n, showAlert, float32ToU16Pair, type ByteOrder } from 'shared-fro
 
 const { t } = useI18n()
 
-interface Props { show: boolean; connectionId: string | null }
+interface Props { show: boolean; connectionId: string | null; slaveId?: number | null }
 const props = defineProps<Props>()
+const writeTarget = computed(() => props.slaveId == null
+  ? t('valuePanel.writeDefaultTarget')
+  : t('valuePanel.writeTarget', { id: props.slaveId }))
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const form = ref({
@@ -64,12 +67,13 @@ async function submit() {
     if (fc === 'write_single_register') {
       await invoke('write_single_register', {
         connectionId: props.connectionId,
-        request: { address: form.value.address, value: parseInt(form.value.value) }
+        request: { slave_id: props.slaveId ?? null, address: form.value.address, value: parseInt(form.value.value) }
       })
     } else if (fc === 'write_single_coil') {
       await invoke('write_single_coil', {
         connectionId: props.connectionId,
         request: {
+          slave_id: props.slaveId ?? null,
           address: form.value.address,
           value: form.value.value === '1' || form.value.value.toLowerCase() === 'true',
         }
@@ -89,13 +93,13 @@ async function submit() {
       }
       await invoke('write_multiple_registers', {
         connectionId: props.connectionId,
-        request: { address: form.value.address, values }
+        request: { slave_id: props.slaveId ?? null, address: form.value.address, values }
       })
     } else if (fc === 'write_multiple_coils') {
       const values = form.value.value.split(',').map(v => v.trim() === '1' || v.trim().toLowerCase() === 'true')
       await invoke('write_multiple_coils', {
         connectionId: props.connectionId,
-        request: { address: form.value.address, values }
+        request: { slave_id: props.slaveId ?? null, address: form.value.address, values }
       })
     }
     emit('close')
@@ -109,6 +113,7 @@ async function submit() {
       <div class="modal-box">
         <div class="modal-title">{{ t('dialog.writeRegisters') }}</div>
         <div class="modal-body">
+          <div class="form-hint write-target">{{ writeTarget }}</div>
           <label class="form-label">
             {{ t('table.function') }}
             <select v-model="form.function" class="form-input">

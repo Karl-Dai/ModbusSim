@@ -13,6 +13,7 @@ import {
   showAlert,
   showConfirm,
 } from 'shared-frontend'
+import type { ScanGroupInfo } from '../types'
 import ScanDialog from './ScanDialog.vue'
 import NewConnectionDialog from './NewConnectionDialog.vue'
 import NewScanGroupDialog from './NewScanGroupDialog.vue'
@@ -21,6 +22,7 @@ import WriteDialog from './WriteDialog.vue'
 const { t } = useI18n()
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
+const selectedScanGroup = inject<Ref<ScanGroupInfo | null>>('selectedScanGroup')!
 const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
 const refreshTree = inject<() => void>('refreshTree')!
 
@@ -198,6 +200,7 @@ const quickActions = computed<ToolbarAction[]>(() => [
   <WriteDialog
     :show="showWriteModal"
     :connection-id="selectedConnectionId"
+    :slave-id="selectedScanGroup?.slave_id ?? null"
     @close="showWriteModal = false"
   />
   <ScanDialog v-if="showScanDialog" @close="showScanDialog = false" />

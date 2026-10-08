@@ -992,6 +992,8 @@ pub async fn read_once(
 pub struct WriteSingleRegRequest {
     pub address: u16,
     pub value: u16,
+    #[serde(default)]
+    pub slave_id: Option<u8>,
 }
 
 #[tauri::command]
@@ -1007,7 +1009,7 @@ pub async fn write_single_register(
 
     conn_state
         .connection
-        .write_single_register(request.address, request.value)
+        .write_single_register_with_slave(request.slave_id, request.address, request.value)
         .await
         .map_err(|e| format!("{}", e))
 }
@@ -1016,6 +1018,8 @@ pub async fn write_single_register(
 pub struct WriteSingleCoilRequest {
     pub address: u16,
     pub value: bool,
+    #[serde(default)]
+    pub slave_id: Option<u8>,
 }
 
 #[tauri::command]
@@ -1031,7 +1035,7 @@ pub async fn write_single_coil(
 
     conn_state
         .connection
-        .write_single_coil(request.address, request.value)
+        .write_single_coil_with_slave(request.slave_id, request.address, request.value)
         .await
         .map_err(|e| format!("{}", e))
 }
@@ -1040,6 +1044,8 @@ pub async fn write_single_coil(
 pub struct WriteMultiRegsRequest {
     pub address: u16,
     pub values: Vec<u16>,
+    #[serde(default)]
+    pub slave_id: Option<u8>,
 }
 
 #[tauri::command]
@@ -1055,7 +1061,7 @@ pub async fn write_multiple_registers(
 
     conn_state
         .connection
-        .write_multiple_registers(request.address, &request.values)
+        .write_multiple_registers_with_slave(request.slave_id, request.address, &request.values)
         .await
         .map_err(|e| format!("{}", e))
 }
@@ -1064,6 +1070,8 @@ pub async fn write_multiple_registers(
 pub struct WriteMultiCoilsRequest {
     pub address: u16,
     pub values: Vec<bool>,
+    #[serde(default)]
+    pub slave_id: Option<u8>,
 }
 
 #[tauri::command]
@@ -1079,7 +1087,7 @@ pub async fn write_multiple_coils(
 
     conn_state
         .connection
-        .write_multiple_coils(request.address, &request.values)
+        .write_multiple_coils_with_slave(request.slave_id, request.address, &request.values)
         .await
         .map_err(|e| format!("{}", e))
 }
@@ -1707,4 +1715,51 @@ pub async fn load_project_file(state: State<'_, AppState>, path: String) -> Resu
 #[tauri::command]
 pub fn list_serial_ports() -> Vec<transport::SerialPortInfo> {
     transport::list_serial_ports()
+}
+
+#[cfg(test)]
+mod write_request_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn write_requests_preserve_optional_slave_ids() {
+        macro_rules! check_request {
+            ($request:ty, $payload:expr) => {
+                let mut payload = $payload;
+                assert_eq!(
+                    serde_json::from_value::<$request>(payload.clone())
+                        .unwrap()
+                        .slave_id,
+                    None
+                );
+                for slave_id in [None, Some(2)] {
+                    payload["slave_id"] = json!(slave_id);
+                    assert_eq!(
+                        serde_json::from_value::<$request>(payload.clone())
+                            .unwrap()
+                            .slave_id,
+                        slave_id
+                    );
+                }
+                for invalid in [json!(-1), json!(256), json!("2"), json!(2.5)] {
+                    payload["slave_id"] = invalid;
+                    assert!(serde_json::from_value::<$request>(payload.clone()).is_err());
+                }
+            };
+        }
+        check_request!(WriteSingleRegRequest, json!({ "address": 10, "value": 42 }));
+        check_request!(
+            WriteSingleCoilRequest,
+            json!({ "address": 10, "value": true })
+        );
+        check_request!(
+            WriteMultiRegsRequest,
+            json!({ "address": 10, "values": [42] })
+        );
+        check_request!(
+            WriteMultiCoilsRequest,
+            json!({ "address": 10, "values": [true] })
+        );
+    }
 }

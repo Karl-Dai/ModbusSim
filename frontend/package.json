@@ -12,7 +12,7 @@
     "@tanstack/vue-virtual": "^3",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2",
-    "vue": "^3.5.30",
+    "vue": "^3.5.42",
     "shared-frontend": "*"
   },
   "devDependencies": {

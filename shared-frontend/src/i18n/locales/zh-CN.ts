@@ -426,6 +426,9 @@ const messages = {
     deleteRegister: '删除寄存器',
   },
   valuePanel: {
+    writeTarget: '写入目标：从站 ID {id}（扫描组）',
+    writeDefaultTarget: '写入目标：连接的默认从站 ID',
+    contiguousHint: '请选择连续寄存器以解析或写入多字值',
     title: '值解析',
     selectHint: '选择一个寄存器查看详情',
     mixedTypeHint: '选中了不同类型的寄存器，无法组合解析',

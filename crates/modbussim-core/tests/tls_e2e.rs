@@ -349,6 +349,40 @@ async fn test_tls_read_holding_registers() {
     assert!(found.is_empty());
     assert!(progress_rx.recv().await.unwrap().cancelled);
 
+    // All TLS write functions must honor an explicit unit and preserve default fallback.
+    for (target, value) in [(Some(2), 22), (None, 11)] {
+        master
+            .write_single_coil_with_slave(target, 5, true)
+            .await
+            .unwrap();
+        master
+            .write_single_register_with_slave(target, 5, value)
+            .await
+            .unwrap();
+        master
+            .write_multiple_coils_with_slave(target, 7, &[true, false, true])
+            .await
+            .unwrap();
+        master
+            .write_multiple_registers_with_slave(target, 7, &[value; 3])
+            .await
+            .unwrap();
+        let devices = slave.devices.read().await;
+        for (slave_id, expected) in [(1, if target.is_some() { 0 } else { 11 }), (2, 22)] {
+            let map = &devices.get(&slave_id).unwrap().register_map;
+            assert_eq!(map.holding_registers.get(&5), Some(&expected));
+            assert_eq!(map.coils.get(&5), Some(&(expected != 0)));
+            for address in 7..10 {
+                assert_eq!(map.holding_registers.get(&address), Some(&expected));
+                assert_eq!(
+                    map.coils.get(&address),
+                    Some(&(expected != 0 && address != 8))
+                );
+            }
+        }
+    }
+    assert_eq!(master.config.slave_id, 1);
+
     assert_eq!(slave.clients.list().len(), 1);
     assert!(slave.clients.list()[0]
         .peer_address
