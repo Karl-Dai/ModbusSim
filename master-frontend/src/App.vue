@@ -164,8 +164,8 @@ html, body, #app {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: #11111b;
-  color: #cdd6f4;
+  background: var(--c-crust);
+  color: var(--c-text);
 }
 
 .app-layout {
@@ -186,34 +186,34 @@ body {
 
 .toolbar-area {
   grid-area: toolbar;
-  background: #1e1e2e;
-  border-bottom: 1px solid #313244;
+  background: var(--c-base);
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .tree-area {
   grid-area: tree;
-  background: #181825;
-  border-right: 1px solid #313244;
+  background: var(--c-mantle);
+  border-right: 1px solid var(--c-surface0);
   overflow-y: auto;
 }
 
 .content-area {
   grid-area: content;
-  background: #11111b;
+  background: var(--c-crust);
   overflow: hidden;
 }
 
 .panel-area {
   grid-area: panel;
-  background: #181825;
-  border-left: 1px solid #313244;
+  background: var(--c-mantle);
+  border-left: 1px solid var(--c-surface0);
   overflow-y: auto;
 }
 
 .log-area {
   grid-area: log;
-  background: #1e1e2e;
-  border-top: 1px solid #313244;
+  background: var(--c-base);
+  border-top: 1px solid var(--c-surface0);
   overflow: hidden;
 }
 </style>

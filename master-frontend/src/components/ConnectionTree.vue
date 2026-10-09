@@ -195,13 +195,13 @@ function fcLabel(fn: string): string {
   padding: 8px 12px;
   font-size: 11px;
   text-transform: uppercase;
-  color: #6c7086;
+  color: var(--c-subtext0);
   letter-spacing: 0.5px;
 }
 
 .tree-empty {
   padding: 24px 12px;
-  color: #6c7086;
+  color: var(--c-subtext0);
   text-align: center;
 }
 
@@ -216,18 +216,18 @@ function fcLabel(fn: string): string {
 }
 
 .tree-node:hover {
-  background: #1e1e2e;
+  background: var(--c-hover-bg);
 }
 
 .tree-node.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-selection-bg);
+  color: var(--c-selection-text);
 }
 
 .tree-node.selected .node-meta,
 .tree-node.selected .node-slave {
-  color: #1e1e2e;
-  opacity: 0.7;
+  color: var(--c-selection-text);
+  opacity: 1;
 }
 
 .tree-child {
@@ -238,7 +238,7 @@ function fcLabel(fn: string): string {
   font-size: 8px;
   width: 12px;
   text-align: center;
-  color: #6c7086;
+  color: var(--c-subtext0);
 }
 
 .node-status {
@@ -248,11 +248,11 @@ function fcLabel(fn: string): string {
   flex-shrink: 0;
 }
 
-.node-status.connected { background: #a6e3a1; }
-.node-status.disconnected { background: #f38ba8; }
-.node-status.error { background: #fab387; }
+.node-status.connected { background: var(--c-green); }
+.node-status.disconnected { background: var(--c-red); }
+.node-status.error { background: var(--c-peach); }
 .node-status.reconnecting {
-  background: #f9e2af;
+  background: var(--c-yellow);
   animation: reconnecting-pulse 1s ease-in-out infinite;
 }
 
@@ -266,12 +266,12 @@ function fcLabel(fn: string): string {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .poll-indicator.active {
-  background: #a6e3a1;
-  box-shadow: 0 0 4px #a6e3a1;
+  background: var(--c-green);
+  box-shadow: 0 0 4px var(--c-green);
 }
 
 .node-label {
@@ -283,20 +283,20 @@ function fcLabel(fn: string): string {
 
 .node-slave {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-subtext0);
 }
 
 .node-meta {
   font-size: 10px;
-  color: #6c7086;
+  color: var(--c-subtext0);
   font-family: monospace;
 }
 
 /* Context Menu */
 .context-menu {
   position: fixed;
-  background: #1e1e2e;
-  border: 1px solid #45475a;
+  background: var(--c-base);
+  border: 1px solid var(--c-surface1);
   border-radius: 6px;
   padding: 4px 0;
   z-index: 999;
@@ -311,10 +311,10 @@ function fcLabel(fn: string): string {
 }
 
 .ctx-item:hover {
-  background: #313244;
+  background: var(--c-control-bg);
 }
 
 .ctx-item.danger {
-  color: #f38ba8;
+  color: var(--c-red);
 }
 </style>

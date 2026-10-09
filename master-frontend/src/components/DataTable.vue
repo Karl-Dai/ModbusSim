@@ -418,26 +418,26 @@ const valueColumnLabel = computed(() => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #6c7086;
+  color: var(--c-subtext0);
   font-size: 13px;
   text-align: center;
 }
 
 .empty-hint {
   font-size: 11px;
-  color: #45475a;
+  color: var(--c-subtext0);
   margin-top: 6px;
 }
 
 .error-text {
-  color: #f38ba8;
+  color: var(--c-red);
   font-size: 12px;
 }
 
 .error-badge {
   font-size: 10px;
-  background: #f38ba8;
-  color: #1e1e2e;
+  background: var(--c-red);
+  color: var(--c-on-accent);
   padding: 1px 6px;
   border-radius: 3px;
   font-weight: 600;
@@ -450,9 +450,9 @@ const valueColumnLabel = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   flex-shrink: 0;
-  background: #1e1e2e;
+  background: var(--c-base);
 }
 
 .header-title {
@@ -462,24 +462,24 @@ const valueColumnLabel = computed(() => {
   text-overflow: ellipsis;
   font-size: 12px;
   font-weight: 600;
-  color: #89b4fa;
+  color: var(--c-blue);
   white-space: nowrap;
 }
 
 .format-select {
   flex: none;
   padding: 2px 6px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-control-bg);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 11px;
   cursor: pointer;
 }
 
 .format-select:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .search-input {
@@ -487,37 +487,37 @@ const valueColumnLabel = computed(() => {
   min-width: min(140px, 100%);
   max-width: 160px;
   padding: 3px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-control-bg);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   font-size: 12px;
   margin-left: auto;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #89b4fa;
+  border-color: var(--c-blue);
 }
 
 .mode-btn {
   padding: 2px 8px;
-  background: #313244;
-  border: 1px solid #45475a;
+  background: var(--c-control-bg);
+  border: 1px solid var(--c-surface1);
   border-radius: 4px;
-  color: #cdd6f4;
+  color: var(--c-text);
   cursor: pointer;
   font-size: 11px;
   font-family: monospace;
 }
 
 .mode-btn:hover {
-  background: #45475a;
+  background: var(--c-surface1);
 }
 
 .register-count {
   font-size: 11px;
-  color: #6c7086;
+  color: var(--c-subtext0);
   white-space: nowrap;
 }
 
@@ -543,12 +543,12 @@ const valueColumnLabel = computed(() => {
 }
 
 .table th {
-  background: #1e1e2e;
-  color: #6c7086;
+  background: var(--c-mantle);
+  color: var(--c-subtext0);
   font-weight: 500;
   padding: 6px 10px;
   text-align: left;
-  border-bottom: 1px solid #313244;
+  border-bottom: 1px solid var(--c-surface0);
   z-index: 1;
 }
 
@@ -557,37 +557,37 @@ const valueColumnLabel = computed(() => {
 }
 
 .table tbody tr:hover {
-  background: #1e1e2e;
+  background: var(--c-hover-bg);
 }
 
 .table tbody tr.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-selection-bg);
+  color: var(--c-selection-text);
 }
 
 .table td {
   padding: 4px 10px;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-row-border);
 }
 
 .col-addr {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   width: 90px;
-  color: #89b4fa;
+  color: var(--c-blue);
 }
 
 .table tbody tr.selected .col-addr {
-  color: #1e1e2e;
+  color: var(--c-selection-text);
 }
 
 .col-raw {
   font-family: monospace;
   width: 120px;
-  color: #6c7086;
+  color: var(--c-subtext0);
 }
 
 .col-display {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 
 .bool-value {
@@ -599,13 +599,13 @@ const valueColumnLabel = computed(() => {
 }
 
 .bool-value.on {
-  background: #a6e3a1;
-  color: #1e1e2e;
+  background: var(--c-success-bg);
+  color: var(--c-success-text);
 }
 
 .bool-value.off {
-  background: #45475a;
-  color: #6c7086;
+  background: var(--c-neutral-bg);
+  color: var(--c-neutral-text);
 }
 
 /* Virtual rows */
@@ -614,20 +614,20 @@ const valueColumnLabel = computed(() => {
   align-items: center;
   cursor: pointer;
   font-size: 12px;
-  border-bottom: 1px solid #1e1e2e;
+  border-bottom: 1px solid var(--c-row-border);
 }
 
 .virtual-row:hover {
-  background: #1e1e2e;
+  background: var(--c-hover-bg);
 }
 
 .virtual-row.selected {
-  background: #89b4fa;
-  color: #1e1e2e;
+  background: var(--c-selection-bg);
+  color: var(--c-selection-text);
 }
 
 .virtual-row.selected .col-addr {
-  color: #1e1e2e;
+  color: var(--c-selection-text);
 }
 
 .vcol {
@@ -648,12 +648,12 @@ const valueColumnLabel = computed(() => {
   width: 120px;
   min-width: 120px;
   font-family: monospace;
-  color: #6c7086;
+  color: var(--c-subtext0);
 }
 
 .vcol.col-display {
   flex: 1;
   min-width: 0;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 </style>
