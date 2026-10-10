@@ -355,17 +355,17 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
 
 <style scoped>
 .value-panel { padding: 0; font-size: 13px; }
-.panel-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: #6c7086; letter-spacing: 0.5px; }
-.empty-state { padding: 24px 12px; color: #6c7086; text-align: center; font-size: 12px; }
-.panel-title { padding: 6px 12px; font-size: 12px; font-weight: 600; color: #89b4fa; border-bottom: 1px solid #313244; margin-bottom: 4px; }
-.panel-hint { padding: 6px 12px; font-size: 11px; color: #fab387; }
-.value-section { padding: 4px 0; border-bottom: 1px solid #313244; }
-.section-title { padding: 4px 12px; font-size: 11px; color: #6c7086; text-transform: uppercase; }
+.panel-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: var(--c-subtext0); letter-spacing: 0.5px; }
+.empty-state { padding: 24px 12px; color: var(--c-subtext0); text-align: center; font-size: 12px; }
+.panel-title { padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--c-blue); border-bottom: 1px solid var(--c-surface0); margin-bottom: 4px; }
+.panel-hint { padding: 6px 12px; font-size: 11px; color: var(--c-peach); }
+.value-section { padding: 4px 0; border-bottom: 1px solid var(--c-surface0); }
+.section-title { padding: 4px 12px; font-size: 11px; color: var(--c-subtext0); text-transform: uppercase; }
 .value-row { display: flex; justify-content: space-between; padding: 3px 12px; }
-.value-label { color: #6c7086; font-size: 12px; }
-.value-data { color: #cdd6f4; font-size: 12px; text-align: right; }
-.value-data.mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+.value-label { color: var(--c-subtext0); font-size: 12px; }
+.value-data { color: var(--c-text); font-size: 12px; text-align: right; }
+.value-data.mono { font-family: var(--font-mono); }
 .value-data.editable { cursor: pointer; border-radius: 3px; padding: 0 4px; user-select: none; }
-.value-data.editable:hover { background: #313244; }
-.panel-edit-input { width: 120px; padding: 1px 6px; background: #1e1e2e; border: 1px solid #89b4fa; border-radius: 3px; color: #cdd6f4; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; text-align: right; outline: none; }
+.value-data.editable:hover { background: var(--c-control-bg); }
+.panel-edit-input { width: 120px; padding: 1px 6px; background: var(--c-base); border: 1px solid var(--c-blue); border-radius: 3px; color: var(--c-text); font-family: var(--font-mono); font-size: 12px; text-align: right; outline: none; }
 </style>

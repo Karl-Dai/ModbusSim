@@ -180,26 +180,26 @@ async function submit() {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; min-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
+.modal-box { background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; padding: 20px; min-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-title { font-size: 15px; font-weight: 600; color: var(--c-text); margin-bottom: 16px; }
 .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #6c7086; }
-.form-input { padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
-.form-input:focus { outline: none; border-color: #89b4fa; }
-.form-hint { color: #6c7086; font-size: 11px; }
-.form-textarea { resize: vertical; min-height: 60px; font-family: 'SF Mono', 'Fira Code', monospace; }
+.form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--c-subtext0); }
+.form-input { padding: 6px 10px; background: var(--c-control-bg); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; }
+.form-input:focus { outline: none; border-color: var(--c-blue); }
+.form-hint { color: var(--c-subtext0); font-size: 11px; }
+.form-textarea { resize: vertical; min-height: 60px; font-family: var(--font-mono); }
 .btn { padding: 7px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn-primary { background: #89b4fa; color: #1e1e2e; }
-.btn-primary:hover { background: #74c7ec; }
+.btn-primary { background: var(--c-blue); color: var(--c-on-accent); }
+.btn-primary:hover { background: var(--c-accent-hover); }
 .btn-primary:disabled { opacity: 0.4; cursor: default; }
-.btn-secondary { background: #45475a; color: #cdd6f4; }
-.btn-secondary:hover { background: #585b70; }
-.float-preview { margin-top: 4px; border: 1px solid #313244; border-radius: 4px; overflow: hidden; }
-.preview-summary { padding: 4px 8px; font-size: 11px; color: #a6e3a1; background: #181825; }
-.preview-warn { color: #fab387; margin-left: 8px; }
+.btn-secondary { background: var(--c-neutral-bg); color: var(--c-text); }
+.btn-secondary:hover { background: var(--c-hover-bg); }
+.float-preview { margin-top: 4px; border: 1px solid var(--c-surface0); border-radius: 4px; overflow: hidden; }
+.preview-summary { padding: 4px 8px; font-size: 11px; color: var(--c-green); background: var(--c-mantle); }
+.preview-warn { color: var(--c-peach); margin-left: 8px; }
 .preview-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-.preview-table th { background: #181825; color: #6c7086; font-weight: 500; padding: 3px 8px; text-align: left; }
-.preview-table td { padding: 2px 8px; color: #cdd6f4; font-family: 'SF Mono', 'Fira Code', monospace; border-top: 1px solid #1e1e2e; }
-.preview-error td { color: #f38ba8; }
+.preview-table th { background: var(--c-mantle); color: var(--c-subtext0); font-weight: 500; padding: 3px 8px; text-align: left; }
+.preview-table td { padding: 2px 8px; color: var(--c-text); font-family: var(--font-mono); border-top: 1px solid var(--c-base); }
+.preview-error td { color: var(--c-red); }
 </style>
