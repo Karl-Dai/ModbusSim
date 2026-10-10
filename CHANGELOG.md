@@ -8,6 +8,33 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.6] - 2026-10-10
+
+### Highlights / 亮点
+
+- 主站浅色主题统一为白色数据区、浅灰侧栏和清晰的深色文字，连接树、值解析与弹窗不再混用深色样式。 / Master light mode now uses white data surfaces, light gray sidebars and readable dark text consistently across the connection tree, value panel and dialogs.
+- 寄存器和线圈写入遵循扫描组指定的从站 ID，并显示实际写入目标；未指定时继续使用连接默认 ID。 / Register and coil writes honor the scan group's unit ID and show the write target, while retaining the connection default when no override is set.
+- 多字解析和写入要求同类型、连续地址的寄存器选择，避免将不连续地址误写为连续范围。 / Multiword interpretation and writes require same-type, contiguous register selections, preventing sparse selections from being written as a packed range.
+
+### Fixed 修复
+
+- 主站启动时初始化保存的主题设置；表格、侧栏、输入框、连接与扫描弹窗统一使用主题变量。 / Initialize the stored Master theme at startup and apply theme tokens to tables, sidebars, inputs, connection dialogs and scan dialogs.
+- 浅色选中行使用柔和蓝色背景，ON/OFF 标签分别使用可读的绿色与中性色；提高深色 OFF 标签的文字对比度。 / Use soft blue selected rows and readable green/neutral ON/OFF badges in light mode, and improve OFF text contrast in dark mode.
+- 扫描组从站 ID 贯穿 FC05、FC06、FC15 和 FC16 写入命令，值面板、写入对话框与日志保持目标一致。 / Propagate scan-group unit IDs through FC05, FC06, FC15 and FC16 writes, keeping the value panel, write dialog and logs aligned with the target.
+- 发送前拒绝空选择、地址空洞、重复、逆序和越界；切换连接、扫描组、从站或寄存器类型时取消未提交编辑。 / Reject empty, sparse, duplicate, reversed or out-of-range selections before sending, and cancel uncommitted edits when the connection, scan group, unit or register type changes.
+
+### Security 安全
+
+- 更新 Vue 家族至 3.5.42、source-map-js 至 1.2.2，并同步必要的 Babel 补丁依赖，修复依赖安全扫描发现的问题。 / Update the Vue packages to 3.5.42 and source-map-js to 1.2.2, with required Babel patch updates, to address dependency audit findings.
+
+### Compatibility 兼容性
+
+- 保留现有工程格式和 Modbus 功能码语义；旧写入请求省略从站 ID 或传入 null 时仍使用连接默认 ID。 / Preserve project formats and Modbus function-code semantics; older write requests with an omitted or null unit ID still use the connection default.
+
+### Tests 测试
+
+- 发版前通过 330 项 Rust 测试、87 项共享前端测试和 20 项发布脚本测试，并验证两端生产构建及真实无头浏览器中的明暗主题、弹窗和双语版本要点。 / Pre-release validation passed 330 Rust tests, 87 shared-frontend tests and 20 release-script tests, both production builds, and real headless-browser checks of light/dark themes, dialogs and bilingual release highlights.
+
 ## [0.17.5] - 2026-10-02
 
 ### Highlights / 亮点
