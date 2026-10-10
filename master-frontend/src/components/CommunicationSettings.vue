@@ -54,12 +54,12 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.communication-settings { border-top: 1px solid #45475a; padding-top: 12px; }
-summary { color: #cdd6f4; font-size: 13px; cursor: pointer; }
+.communication-settings { border-top: 1px solid var(--c-surface1); padding-top: 12px; }
+summary { color: var(--c-text); font-size: 13px; cursor: pointer; }
 .settings-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-label { display: flex; flex-direction: column; gap: 4px; color: #a6adc8; font-size: 12px; }
-input[type="number"] { min-width: 0; padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
-input:focus-visible, summary:focus-visible { outline: 2px solid #89b4fa; outline-offset: 2px; }
+label { display: flex; flex-direction: column; gap: 4px; color: var(--c-subtext0); font-size: 12px; }
+input[type="number"] { min-width: 0; padding: 6px 10px; background: var(--c-control-bg); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; }
+input:focus-visible, summary:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
 .checkbox-label { flex-direction: row; align-items: center; }
-p { margin: -6px 0 0; color: #a6adc8; font-size: 12px; line-height: 1.5; }
+p { margin: -6px 0 0; color: var(--c-subtext0); font-size: 12px; line-height: 1.5; }
 </style>

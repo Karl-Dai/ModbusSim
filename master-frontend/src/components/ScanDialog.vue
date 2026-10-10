@@ -345,46 +345,46 @@ async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
 
 <style scoped>
 .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; width: 520px; max-height: 80vh; display: flex; flex-direction: column; }
-.modal-title { padding: 12px 16px; font-size: 14px; font-weight: 600; color: #cdd6f4; border-bottom: 1px solid #313244; }
-.modal-footer { padding: 8px 16px; border-top: 1px solid #313244; display: flex; justify-content: flex-end; }
+.modal-box { background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; width: 520px; max-height: 80vh; display: flex; flex-direction: column; }
+.modal-title { padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--c-text); border-bottom: 1px solid var(--c-surface0); }
+.modal-footer { padding: 8px 16px; border-top: 1px solid var(--c-surface0); display: flex; justify-content: flex-end; }
 
-.tab-bar { display: flex; border-bottom: 1px solid #313244; }
-.tab-btn { flex: 1; padding: 8px; background: transparent; border: none; color: #6c7086; cursor: pointer; font-size: 12px; border-bottom: 2px solid transparent; }
-.tab-btn.active { color: #89b4fa; border-bottom-color: #89b4fa; }
+.tab-bar { display: flex; border-bottom: 1px solid var(--c-surface0); }
+.tab-btn { flex: 1; padding: 8px; background: transparent; border: none; color: var(--c-subtext0); cursor: pointer; font-size: 12px; border-bottom: 2px solid transparent; }
+.tab-btn.active { color: var(--c-blue); border-bottom-color: var(--c-blue); }
 .tab-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .tab-content { padding: 12px 16px; overflow-y: auto; flex: 1; }
 
 .form-row { margin-bottom: 8px; }
-.form-row label { display: block; font-size: 11px; color: #6c7086; margin-bottom: 3px; }
-.form-row input, .form-row select { width: 100%; padding: 5px 8px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 12px; }
-.form-row input:focus, .form-row select:focus { outline: none; border-color: #89b4fa; }
+.form-row label { display: block; font-size: 11px; color: var(--c-subtext0); margin-bottom: 3px; }
+.form-row input, .form-row select { width: 100%; padding: 5px 8px; background: var(--c-control-bg); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 12px; }
+.form-row input:focus, .form-row select:focus { outline: none; border-color: var(--c-blue); }
 .form-row-inline { display: flex; gap: 8px; }
 .form-row-inline .form-row { flex: 1; }
 
-.checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #cdd6f4; cursor: pointer; margin-bottom: 8px; }
-.checkbox-row input { accent-color: #89b4fa; }
+.checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text); cursor: pointer; margin-bottom: 8px; }
+.checkbox-row input { accent-color: var(--c-blue); }
 .action-row { margin: 10px 0; }
-.btn-primary { width: 100%; padding: 6px; background: #89b4fa; color: #1e1e2e; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.btn-primary:hover { background: #74c7ec; }
-.btn-danger { width: 100%; padding: 6px; background: #f38ba8; color: #1e1e2e; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
-.btn-secondary { padding: 5px 16px; background: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-primary { width: 100%; padding: 6px; background: var(--c-blue); color: var(--c-on-accent); border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-danger { width: 100%; padding: 6px; background: var(--c-red); color: var(--c-on-accent); border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-secondary { padding: 5px 16px; background: var(--c-control-bg); color: var(--c-text); border: 1px solid var(--c-surface1); border-radius: 4px; cursor: pointer; font-size: 12px; }
 .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .progress-section { margin: 8px 0; }
-.progress-bar-bg { height: 6px; background: #313244; border-radius: 3px; overflow: hidden; }
-.progress-bar-fill { height: 100%; background: #89b4fa; transition: width 0.15s ease; }
-.progress-text { font-size: 11px; color: #6c7086; text-align: center; margin-top: 4px; }
+.progress-bar-bg { height: 6px; background: var(--c-control-bg); border-radius: 3px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--c-blue); transition: width 0.15s ease; }
+.progress-text { font-size: 11px; color: var(--c-subtext0); text-align: center; margin-top: 4px; }
 
 .result-section { margin-top: 8px; }
-.result-title { font-size: 12px; color: #a6e3a1; margin-bottom: 4px; font-weight: 600; }
-.result-scroll { max-height: 200px; overflow-y: auto; border: 1px solid #313244; border-radius: 4px; }
+.result-title { font-size: 12px; color: var(--c-green); margin-bottom: 4px; font-weight: 600; }
+.result-scroll { max-height: 200px; overflow-y: auto; border: 1px solid var(--c-surface0); border-radius: 4px; }
 .result-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.result-table th { background: #181825; color: #6c7086; font-weight: 500; padding: 4px 10px; text-align: left; position: sticky; top: 0; }
-.result-table td { padding: 3px 10px; border-top: 1px solid #1e1e2e; color: #cdd6f4; }
-.result-table .mono { font-family: 'SF Mono', 'Fira Code', monospace; }
-.empty-result { text-align: center; color: #6c7086; font-size: 12px; padding: 16px; }
-.scan-hint { font-size: 11px; color: #6c7086; margin-bottom: 8px; }
-.status-text { font-size: 12px; color: #89b4fa; text-align: center; padding: 6px; }
+.result-table th { background: var(--c-mantle); color: var(--c-subtext0); font-weight: 500; padding: 4px 10px; text-align: left; position: sticky; top: 0; }
+.result-table td { padding: 3px 10px; border-top: 1px solid var(--c-base); color: var(--c-text); }
+.result-table .mono { font-family: var(--font-mono); }
+.empty-result { text-align: center; color: var(--c-subtext0); font-size: 12px; padding: 16px; }
+.scan-hint { font-size: 11px; color: var(--c-subtext0); margin-bottom: 8px; }
+.status-text { font-size: 12px; color: var(--c-blue); text-align: center; padding: 6px; }
 </style>
