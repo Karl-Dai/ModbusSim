@@ -92,13 +92,12 @@ pub fn run() {
         ])
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Keep transport startup diagnostics available in installed builds.
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             analytics::track_started(app.handle());
 
             let update_app = app.handle().clone();

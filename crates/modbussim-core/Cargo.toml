@@ -17,10 +17,11 @@ serialport = "4"
 tokio-serial = "5.4"
 native-tls = "0.2"
 tokio-native-tls = "0.3"
+# Parse slave identities and perform TLS in memory, without macOS Keychain.
+# Bundle OpenSSL so users do not need a system installation (including Windows).
+openssl = { version = "0.10", features = ["vendored"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
 rcgen = "0.13"
-# vendored: 编译 OpenSSL 源码，避免 Windows MSVC CI 上找不到系统 OpenSSL
-openssl = { version = "0.10", features = ["vendored"] }
