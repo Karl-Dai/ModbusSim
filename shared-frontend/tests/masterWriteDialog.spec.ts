@@ -28,7 +28,7 @@ for (const slaveId of [2, null]) {
     const addressInput = document.querySelector<HTMLInputElement>('input[type="number"]')!
     addressInput.value = '10'
     addressInput.dispatchEvent(new Event('input', { bubbles: true }))
-    const valueInput = document.querySelector<HTMLInputElement>('input[type="text"]')!
+    const valueInput = document.querySelector<HTMLInputElement | HTMLTextAreaElement>('input[type="text"], textarea')!
     valueInput.value = input
     valueInput.dispatchEvent(new Event('input', { bubbles: true }))
     await flushPromises()
