@@ -289,10 +289,10 @@ pub async fn start_slave_connection(
                 );
             }));
 
-        conn.connection
-            .start()
-            .await
-            .map_err(|e| format!("failed to start: {}", e))?;
+        conn.connection.start().await.map_err(|e| {
+            log::error!("Failed to start slave connection {id}: {e}");
+            format!("failed to start: {e}")
+        })?;
         state_str = format!("{:?}", conn.connection.state());
     }
 

@@ -281,7 +281,7 @@ impl SlaveConnection {
     }
 
     /// Start the server. Idempotent: returns Ok if already running. Errors
-    /// only on bind/transport failure.
+    /// on bind/transport failure or invalid TLS certificates.
     pub async fn start(&mut self) -> Result<(), SlaveError> {
         if self.state == ConnectionState::Running {
             return Ok(());
@@ -397,10 +397,21 @@ impl SlaveConnection {
                     *port,
                 );
                 let tls_config = self.tls_config.clone();
+                // Validate certificates before reporting Running, and keep the
+                // bound socket so startup failures reach the caller immediately.
+                let acceptor = tokio::task::spawn_blocking(move || {
+                    crate::tls_slave::build_tls_acceptor(&tls_config)
+                })
+                .await
+                .map_err(|e| SlaveError::TlsError(format!("TLS initialization failed: {e}")))?
+                .map_err(SlaveError::CertError)?;
+                let listener = TcpListener::bind(addr)
+                    .await
+                    .map_err(|e| SlaveError::BindError(format!("Failed to bind {addr}: {e}")))?;
                 tokio::spawn(async move {
                     if let Err(e) = crate::tls_slave::run_tls_slave(
-                        addr,
-                        tls_config,
+                        listener,
+                        acceptor,
                         devices,
                         log_collector,
                         change_callback,
