@@ -1,7 +1,7 @@
 //! TLS-enabled Modbus TCP slave server.
 //!
 //! Binds a TCP listener (tokio), accepts connections, performs a TLS handshake
-//! via `native_tls`, and then handles MBAP-framed Modbus requests on each
+//! via OpenSSL (in-memory keys, no OS keychain), then handles MBAP requests on each
 //! connection in a blocking thread.
 
 use crate::clients::ConnectedClients;
@@ -13,7 +13,12 @@ use crate::rtu_slave::{
 };
 use crate::slave::{SharedChangeCallback, SharedDevices, SharedLogCollector};
 use crate::transport::SlaveTlsConfig;
-use native_tls::{Identity, Protocol, TlsAcceptor};
+use openssl::pkcs12::Pkcs12;
+use openssl::pkey::PKey;
+use openssl::provider::Provider;
+use openssl::ssl::{SslAcceptor, SslMethod, SslStream, SslVerifyMode, SslVersion};
+use openssl::stack::Stack;
+use openssl::x509::X509;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,60 +30,130 @@ use tokio::sync::oneshot;
 // TLS acceptor construction
 // ---------------------------------------------------------------------------
 
-/// Build a `native_tls::TlsAcceptor` from a `SlaveTlsConfig`.
+/// Build an in-memory TLS acceptor without importing private keys into Keychain.
 ///
 /// Loads identity from PKCS#12 (priority) or PEM cert+key, sets min TLS
-/// version to 1.2, and returns the acceptor.
-pub fn build_tls_acceptor(config: &SlaveTlsConfig) -> Result<TlsAcceptor, String> {
-    let identity = if !config.pkcs12_file.is_empty() {
+/// version to 1.2, and enforces client authentication against the configured CA.
+pub fn build_tls_acceptor(config: &SlaveTlsConfig) -> Result<SslAcceptor, String> {
+    let (cert, key, chain) = if !config.pkcs12_file.is_empty() {
         // Load PKCS#12 identity.
         let pkcs12_bytes = std::fs::read(&config.pkcs12_file)
             .map_err(|e| format!("Failed to read PKCS#12 file '{}': {e}", config.pkcs12_file))?;
-        Identity::from_pkcs12(&pkcs12_bytes, &config.pkcs12_password)
-            .map_err(|e| format!("Failed to parse PKCS#12: {e}"))?
+        let p12 =
+            Pkcs12::from_der(&pkcs12_bytes).map_err(|e| format!("Failed to parse PKCS#12: {e}"))?;
+        let identity = p12
+            .parse2(&config.pkcs12_password)
+            .or_else(|original| {
+                // Older P12 exports use RC2/3DES. Enable their decoder only
+                // while importing, retaining OpenSSL's default algorithms.
+                // The TLS cipher allowlist below stays unchanged.
+                let _legacy = Provider::try_load(None, "legacy", true).map_err(|_| original)?;
+                p12.parse2(&config.pkcs12_password)
+            })
+            .map_err(|e| format!("Failed to parse PKCS#12: {e}"))?;
+        (
+            identity.cert.ok_or("PKCS#12 contains no certificate")?,
+            identity.pkey.ok_or("PKCS#12 contains no private key")?,
+            identity
+                .ca
+                .map(|chain| chain.into_iter().collect())
+                .unwrap_or_default(),
+        )
     } else if !config.cert_file.is_empty() && !config.key_file.is_empty() {
         // Load PEM cert + key.
         let cert_bytes = std::fs::read(&config.cert_file)
             .map_err(|e| format!("Failed to read cert file '{}': {e}", config.cert_file))?;
         let key_bytes = std::fs::read(&config.key_file)
             .map_err(|e| format!("Failed to read key file '{}': {e}", config.key_file))?;
-        Identity::from_pkcs8(&cert_bytes, &key_bytes)
-            .map_err(|e| format!("Failed to create identity from PEM: {e}"))?
+        let mut certs = X509::stack_from_pem(&cert_bytes)
+            .map_err(|e| format!("Failed to parse PEM certificates: {e}"))?
+            .into_iter();
+        let cert = certs.next().ok_or("PEM file contains no certificate")?;
+        // Supply an explicit passphrase to prevent OpenSSL's default interactive
+        // password prompt. The existing PEM configuration has no password field.
+        let key = PKey::private_key_from_pem_passphrase(&key_bytes, b"")
+            .map_err(|e| format!("Failed to parse PEM private key (use an unencrypted key or password-protected PKCS#12): {e}"))?;
+        (cert, key, certs.collect::<Vec<_>>())
     } else {
         return Err("No certificate configured: set pkcs12_file or cert_file+key_file".into());
     };
 
-    let acceptor = TlsAcceptor::builder(identity)
-        .min_protocol_version(Some(Protocol::Tlsv12))
-        .build()
+    let mut acceptor = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls_server())
         .map_err(|e| format!("Failed to build TLS acceptor: {e}"))?;
+    acceptor
+        .set_min_proto_version(Some(SslVersion::TLS1_2))
+        .map_err(|e| format!("Failed to set TLS minimum version: {e}"))?;
+    acceptor
+        .set_certificate(&cert)
+        .map_err(|e| format!("Failed to set server certificate: {e}"))?;
+    acceptor
+        .set_private_key(&key)
+        .map_err(|e| format!("Failed to set server private key: {e}"))?;
+    acceptor
+        .check_private_key()
+        .map_err(|e| format!("Server certificate and private key do not match: {e}"))?;
+    for cert in chain {
+        acceptor
+            .add_extra_chain_cert(cert)
+            .map_err(|e| format!("Failed to set server certificate chain: {e}"))?;
+    }
 
-    Ok(acceptor)
+    if config.require_client_cert {
+        if config.ca_file.is_empty() {
+            return Err("Client certificate authentication requires a CA file".into());
+        }
+        let ca_bytes = std::fs::read(&config.ca_file)
+            .map_err(|e| format!("Failed to read CA file '{}': {e}", config.ca_file))?;
+        let ca_certs = X509::stack_from_pem(&ca_bytes)
+            .map_err(|e| format!("Failed to parse CA certificates: {e}"))?;
+        if ca_certs.is_empty() {
+            return Err("CA file contains no certificates".into());
+        }
+        let mut ca_names =
+            Stack::new().map_err(|e| format!("Failed to create client CA list: {e}"))?;
+        for ca in ca_certs {
+            let name = ca
+                .subject_name()
+                .to_owned()
+                .map_err(|e| format!("Failed to read CA subject: {e}"))?;
+            ca_names
+                .push(name)
+                .map_err(|e| format!("Failed to add client CA name: {e}"))?;
+            acceptor
+                .cert_store_mut()
+                .add_cert(ca)
+                .map_err(|e| format!("Failed to add trusted client CA: {e}"))?;
+        }
+        acceptor.set_client_ca_list(ca_names);
+        acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+    } else {
+        acceptor.set_verify(SslVerifyMode::NONE);
+    }
+
+    Ok(acceptor.build())
 }
 
 // ---------------------------------------------------------------------------
 // Server entry point
 // ---------------------------------------------------------------------------
 
-/// Run a TLS Modbus TCP slave on `addr`.
+/// Run a TLS Modbus TCP slave with an already bound listener and valid identity.
 ///
 /// Accepts TCP connections, performs TLS handshake via `spawn_blocking`, then
 /// hands off to `handle_client` which runs in a blocking thread.
 pub async fn run_tls_slave(
-    addr: SocketAddr,
-    tls_config: SlaveTlsConfig,
+    listener: TcpListener,
+    acceptor: SslAcceptor,
     devices: SharedDevices,
     log_collector: SharedLogCollector,
     change_callback: SharedChangeCallback,
     clients: ConnectedClients,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let acceptor = build_tls_acceptor(&tls_config)?;
     let acceptor = Arc::new(acceptor);
-
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|e| format!("Failed to bind {addr}: {e}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get TLS address: {e}"))?;
     log::info!("TLS Modbus slave listening on {addr}");
 
     // Shared shutdown flag that blocking client threads can check.
@@ -155,7 +230,7 @@ pub async fn run_tls_slave(
 /// Sets a 200ms read timeout so the thread can periodically check the shutdown
 /// flag. Reads MBAP frames, processes requests, and writes responses.
 fn handle_client(
-    mut tls_stream: native_tls::TlsStream<std::net::TcpStream>,
+    mut tls_stream: SslStream<std::net::TcpStream>,
     peer_addr: SocketAddr,
     devices: SharedDevices,
     log_collector: SharedLogCollector,

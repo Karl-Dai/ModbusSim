@@ -502,12 +502,13 @@ async fn test_legacy_certificate_requires_explicit_compatibility() {
     cert.sign(&ca_key, MessageDigest::sha256()).unwrap();
     let cert = cert.build();
     assert!(cert.subject_alt_names().is_none());
-    let identity =
-        native_tls::Identity::from_pkcs12(&make_pkcs12(&cert, &key, &ca_cert), "password").unwrap();
-    let acceptor = native_tls::TlsAcceptor::builder(identity)
-        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
-        .build()
-        .unwrap();
+    let identity_file = write_temp_file(&make_pkcs12(&cert, &key, &ca_cert));
+    let acceptor = modbussim_core::tls_slave::build_tls_acceptor(&SlaveTlsConfig {
+        pkcs12_file: identity_file.path().to_string_lossy().into_owned(),
+        pkcs12_password: "password".into(),
+        ..Default::default()
+    })
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = tokio::spawn(async move {
@@ -593,4 +594,261 @@ async fn test_legacy_certificate_requires_explicit_compatibility() {
     }
     compatible.disconnect().await.unwrap();
     assert_eq!(server.await.unwrap(), 1);
+}
+
+// Exercise the production slave handshake and Modbus handler with an in-memory
+// client too: these tests must not import any private key into macOS Keychain.
+async fn exchange_with_tls_slave(
+    config: &SlaveTlsConfig,
+    client: openssl::ssl::SslConnector,
+) -> Result<(), String> {
+    use modbussim_core::{clients::ConnectedClients, mbap, tls_slave};
+    use std::{sync::Arc, time::Duration};
+
+    let acceptor = tls_slave::build_tls_acceptor(config)?;
+    // Retain the socket throughout setup; there is no free-port/rebind race.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let devices = Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::from([
+        (1, SlaveDevice::with_default_registers(1, "mTLS", 10)),
+    ])));
+    let clients = ConnectedClients::default();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(tls_slave::run_tls_slave(
+        listener,
+        acceptor,
+        devices,
+        None,
+        None,
+        clients.clone(),
+        shutdown_rx,
+    ));
+    let result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let socket = std::net::TcpStream::connect_timeout(&addr, Duration::from_secs(3))
+            .map_err(|e| e.to_string())?;
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut stream = client
+            .connect("localhost", socket)
+            .map_err(|e| e.to_string())?;
+        // TLS 1.3 can report certificate rejection on the first read, after the
+        // client connect() returned. Require a real response to count as success.
+        mbap::write_frame(&mut stream, 1, 1, &[6, 0, 0, 0, 42]).map_err(|e| e.to_string())?;
+        let (header, response) = mbap::read_frame(&mut stream).map_err(|e| e.to_string())?;
+        assert_eq!(header.transaction_id, 1);
+        assert_eq!(response, [6, 0, 0, 0, 42]);
+        mbap::write_frame(&mut stream, 2, 1, &[3, 0, 0, 0, 1]).map_err(|e| e.to_string())?;
+        let (_, response) = mbap::read_frame(&mut stream).map_err(|e| e.to_string())?;
+        assert_eq!(response, [3, 2, 0, 42]);
+        let _ = stream.shutdown();
+        Ok(())
+    })
+    .await
+    .unwrap();
+    clients.close_all();
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), server)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    result
+}
+
+fn in_memory_client(
+    ca: &openssl::x509::X509,
+    identity: Option<(
+        &openssl::x509::X509,
+        &openssl::pkey::PKey<openssl::pkey::Private>,
+    )>,
+    version: openssl::ssl::SslVersion,
+) -> openssl::ssl::SslConnector {
+    use openssl::ssl::{SslConnector, SslMethod};
+    let mut client = SslConnector::builder(SslMethod::tls_client()).unwrap();
+    client.cert_store_mut().add_cert(ca.to_owned()).unwrap();
+    client.set_min_proto_version(Some(version)).unwrap();
+    client.set_max_proto_version(Some(version)).unwrap();
+    if let Some((cert, key)) = identity {
+        client.set_certificate(cert).unwrap();
+        client.set_private_key(key).unwrap();
+    }
+    client.build()
+}
+
+#[tokio::test]
+async fn test_slave_pem_and_pkcs12_restart_without_keychain() {
+    use openssl::ssl::SslVersion;
+    let (ca_pem, ca_cert, ca_key) = gen_ca();
+    let (cert, key) = gen_leaf_cert(&["localhost"], &ca_cert, &ca_key);
+    let mut chain = cert.to_pem().unwrap();
+    chain.extend_from_slice(&ca_pem);
+    let cert_file = write_temp_file(&chain);
+    let key_file = write_temp_file(&key.private_key_to_pem_pkcs8().unwrap());
+    let p12_file = write_temp_file(&make_pkcs12(&cert, &key, &ca_cert));
+    for config in [
+        SlaveTlsConfig {
+            cert_file: cert_file.path().to_string_lossy().into_owned(),
+            key_file: key_file.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+        SlaveTlsConfig {
+            pkcs12_file: p12_file.path().to_string_lossy().into_owned(),
+            pkcs12_password: "password".into(),
+            ..Default::default()
+        },
+    ] {
+        for _ in 0..3 {
+            exchange_with_tls_slave(
+                &config,
+                in_memory_client(&ca_cert, None, SslVersion::TLS1_2),
+            )
+            .await
+            .expect("Repeated slave starts must work without Keychain");
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_slave_legacy_pkcs12_without_keychain() {
+    use openssl::{nid::Nid, pkcs12::Pkcs12, provider::Provider, ssl::SslVersion};
+    let (_, ca, ca_key) = gen_ca();
+    let (cert, key) = gen_leaf_cert(&["localhost"], &ca, &ca_key);
+    let p12 = {
+        let _legacy = Provider::try_load(None, "legacy", true).unwrap();
+        Pkcs12::builder()
+            .cert(&cert)
+            .pkey(&key)
+            .key_algorithm(Nid::PBE_WITHSHA1AND3_KEY_TRIPLEDES_CBC)
+            .cert_algorithm(Nid::PBE_WITHSHA1AND40BITRC2_CBC)
+            .build2("password")
+            .unwrap()
+            .to_der()
+            .unwrap()
+    };
+    let p12_file = write_temp_file(&p12);
+    let config = SlaveTlsConfig {
+        pkcs12_file: p12_file.path().to_string_lossy().into_owned(),
+        pkcs12_password: "password".into(),
+        ..Default::default()
+    };
+    exchange_with_tls_slave(&config, in_memory_client(&ca, None, SslVersion::TLS1_2))
+        .await
+        .expect("Legacy P12 exports must still work without Keychain");
+}
+
+#[tokio::test]
+async fn test_slave_mutual_tls_requires_trusted_client_certificate() {
+    use openssl::ssl::SslVersion;
+    let (ca_pem, ca_cert, ca_key) = gen_ca();
+    let (server_cert, server_key) = gen_leaf_cert(&["localhost"], &ca_cert, &ca_key);
+    let (client_cert, client_key) = gen_leaf_cert(&["client"], &ca_cert, &ca_key);
+    let (_, rogue_ca, rogue_ca_key) = gen_ca();
+    let (rogue_cert, rogue_key) = gen_leaf_cert(&["rogue"], &rogue_ca, &rogue_ca_key);
+    let cert_file = write_temp_file(&server_cert.to_pem().unwrap());
+    let key_file = write_temp_file(&server_key.private_key_to_pem_pkcs8().unwrap());
+    let ca_file = write_temp_file(&ca_pem);
+    let config = SlaveTlsConfig {
+        cert_file: cert_file.path().to_string_lossy().into_owned(),
+        key_file: key_file.path().to_string_lossy().into_owned(),
+        ca_file: ca_file.path().to_string_lossy().into_owned(),
+        require_client_cert: true,
+        ..Default::default()
+    };
+    for version in [SslVersion::TLS1_2, SslVersion::TLS1_3] {
+        exchange_with_tls_slave(
+            &config,
+            in_memory_client(&ca_cert, Some((&client_cert, &client_key)), version),
+        )
+        .await
+        .expect("A trusted client must read and write registers");
+        assert!(
+            exchange_with_tls_slave(&config, in_memory_client(&ca_cert, None, version))
+                .await
+                .is_err(),
+            "mTLS must reject clients without certificates"
+        );
+        assert!(
+            exchange_with_tls_slave(
+                &config,
+                in_memory_client(&ca_cert, Some((&rogue_cert, &rogue_key)), version)
+            )
+            .await
+            .is_err(),
+            "mTLS must reject certificates signed by a different CA"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_slave_bad_tls_configuration_fails_before_running() {
+    use modbussim_core::{slave::SlaveError, tls_slave::build_tls_acceptor};
+    let (_, ca, ca_key) = gen_ca();
+    let (cert, key) = gen_leaf_cert(&["localhost"], &ca, &ca_key);
+    let cert_file = write_temp_file(&cert.to_pem().unwrap());
+    let key_file = write_temp_file(&key.private_key_to_pem_pkcs8().unwrap());
+    let p12_file = write_temp_file(&make_pkcs12(&cert, &key, &ca));
+    let config = SlaveTlsConfig {
+        cert_file: cert_file.path().to_string_lossy().into_owned(),
+        key_file: key_file.path().to_string_lossy().into_owned(),
+        require_client_cert: true,
+        ..Default::default()
+    };
+    let mut slave = SlaveConnection::new(Transport::TcpTls {
+        host: "127.0.0.1".into(),
+        port: 0,
+    });
+    slave.tls_config = config.clone();
+    assert!(
+        matches!(slave.start().await, Err(SlaveError::CertError(e)) if e.contains("requires a CA file"))
+    );
+    assert_eq!(
+        slave.state(),
+        modbussim_core::slave::ConnectionState::Stopped
+    );
+    let empty_ca = write_temp_file(b"");
+    slave.tls_config.ca_file = empty_ca.path().to_string_lossy().into_owned();
+    assert!(
+        matches!(slave.start().await, Err(SlaveError::CertError(e)) if e.contains("no certificates"))
+    );
+    assert_eq!(
+        slave.state(),
+        modbussim_core::slave::ConnectionState::Stopped
+    );
+
+    let wrong_key_file = write_temp_file(&ca_key.private_key_to_pem_pkcs8().unwrap());
+    assert!(
+        build_tls_acceptor(&SlaveTlsConfig {
+            key_file: wrong_key_file.path().to_string_lossy().into_owned(),
+            require_client_cert: false,
+            ..config.clone()
+        })
+        .is_err(),
+        "Mismatched certificate/key must fail during setup"
+    );
+    assert!(
+        build_tls_acceptor(&SlaveTlsConfig {
+            pkcs12_file: p12_file.path().to_string_lossy().into_owned(),
+            pkcs12_password: "wrong-password".into(),
+            ..Default::default()
+        })
+        .is_err(),
+        "Wrong P12 password must fail instead of prompting"
+    );
+    let encrypted_key = write_temp_file(
+        &key.private_key_to_pem_pkcs8_passphrase(openssl::symm::Cipher::aes_256_cbc(), b"secret")
+            .unwrap(),
+    );
+    assert!(
+        build_tls_acceptor(&SlaveTlsConfig {
+            key_file: encrypted_key.path().to_string_lossy().into_owned(),
+            require_client_cert: false,
+            ..config
+        })
+        .is_err(),
+        "Encrypted PEM must fail without an interactive password callback"
+    );
 }
