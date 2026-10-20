@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@tanstack/vue-virtual": "^3",
-    "vue": "^3.5.30",
-    "shared-frontend": "*"
+    "shared-frontend": "*",
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@types/node": "^24.12.0",

@@ -13,5 +13,8 @@
     "dev:master:go": "./go/scripts/mastergui.sh dev",
     "build:master:go": "./go/scripts/mastergui.sh build",
     "bindings:master:go": "./go/scripts/mastergui.sh bindings"
+  },
+  "overrides": {
+    "vue": "^3.5.44"
   }
 }
