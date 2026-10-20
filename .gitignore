@@ -36,3 +36,23 @@ Thumbs.db
 RELEASE_BODY.md
 latest-slave*.json
 latest-master*.json
+
+# Go desktop build outputs
+go/cmd/slavegui/build/
+go/cmd/slavegui/assets/*
+!go/cmd/slavegui/assets/.gitkeep
+frontend/package.json.md5
+
+go/cmd/mastergui/build/
+go/cmd/mastergui/assets/*
+!go/cmd/mastergui/assets/.gitkeep
+master-frontend/package.json.md5
+
+# Agent/tool session artifacts
+.omo/
+.opencode/
+.codegraph/
+.playwright-cli/
+.playwright-mcp/
+.claude/worktrees/
+output/
