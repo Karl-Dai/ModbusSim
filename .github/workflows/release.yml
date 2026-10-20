@@ -16,6 +16,7 @@ permissions:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  WAILS_CLI_VERSION: v2.14.0
 
 jobs:
   validate-release:
@@ -41,50 +42,58 @@ jobs:
           fi
           node scripts/prepare-release.mjs verify "$RELEASE_TAG"
 
+  # Create the draft release up front so the parallel build jobs only upload
+  # assets and never race on release creation.
+  create-release:
+    needs: validate-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; reusing it."
+          else
+            gh release create "$RELEASE_TAG" \
+              --draft \
+              --title "ModbusSim $RELEASE_TAG" \
+              --notes "See the assets below to download ModbusSlave and ModbusMaster for your platform."
+          fi
+
   build:
     name: Build ${{ matrix.app.role }} (${{ matrix.target.label }})
-    needs: validate-release
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
         app:
           - role: Slave
             frontend: frontend
-            project: crates/modbussim-app
-            crate_bin: modbussim-app
+            project: go/cmd/slavegui
             product: ModbusSlave
           - role: Master
             frontend: master-frontend
-            project: crates/modbusmaster-app
-            crate_bin: modbusmaster-app
+            project: go/cmd/mastergui
             product: ModbusMaster
         target:
-          - label: macOS Apple Silicon
+          - label: macOS Universal
             platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-            rust_target: aarch64-apple-darwin
-            win_arch: ''
-          - label: macOS Intel
-            platform: macos-latest
-            args: '--target x86_64-apple-darwin'
-            rust_target: x86_64-apple-darwin
-            win_arch: ''
+            wails_platform: darwin/universal
+            suffix: macOS-universal
           - label: Linux x64
             platform: ubuntu-22.04
-            args: ''
-            rust_target: ''
-            win_arch: ''
+            wails_platform: linux/amd64
+            suffix: linux-x64
           - label: Windows x64
             platform: windows-latest
-            args: ''
-            rust_target: ''
-            win_arch: x64
-          - label: Windows ARM64
-            platform: windows-latest
-            args: '--target aarch64-pc-windows-msvc'
-            rust_target: aarch64-pc-windows-msvc
-            win_arch: arm64
+            wails_platform: windows/amd64
+            suffix: windows-x64
     runs-on: ${{ matrix.target.platform }}
+    env:
+      CGO_ENABLED: '1'
     steps:
       - uses: actions/checkout@v4
 
@@ -92,22 +101,21 @@ jobs:
         if: matrix.target.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libudev-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_CLI_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target.rust_target }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: '${{ matrix.app.project }} -> ../../target'
 
       - name: Install frontend dependencies
         # Install only from the reviewed workspace lockfile; lifecycle scripts
@@ -118,110 +126,80 @@ jobs:
         working-directory: ${{ matrix.app.frontend }}
         run: npm run build
 
-      - name: Build and upload ${{ matrix.app.product }}
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: ${{ matrix.app.project }}
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseName: 'ModbusSim ${{ env.RELEASE_TAG }}'
-          releaseBody: 'See the assets below to download ModbusSlave and ModbusMaster for your platform.'
-          # Keep the release hidden until every one of the 10 build jobs has
-          # completed and the updater manifests are ready to be generated.
-          releaseDraft: true
-          prerelease: false
-          # ModbusSim publishes separate slave/master manifests. A shared
-          # latest.json from each parallel job would race and is not consumed.
-          includeUpdaterJson: false
-          args: ${{ matrix.target.args }}
+      # Wails' Darwin cgo code references UTType without declaring the
+      # framework, and the apps target macOS 13+; mirror go/scripts/*.sh.
+      - name: Configure macOS cgo flags
+        if: matrix.target.platform == 'macos-latest'
+        shell: bash
+        run: |
+          echo 'CGO_CFLAGS=-mmacosx-version-min=13.0' >> "$GITHUB_ENV"
+          echo 'CGO_LDFLAGS=-framework UniformTypeIdentifiers -mmacosx-version-min=13.0' >> "$GITHUB_ENV"
 
-      # tauri-action does not retry every bundle upload. Parallel jobs sharing
-      # a draft release can hit GitHub's delete/upload race, so re-upload this
-      # job's artifacts idempotently with bounded retries.
-      - name: Re-upload bundles with retry
-        if: always()
+      - name: Build ${{ matrix.app.product }} with Wails
+        working-directory: ${{ matrix.app.project }}
+        run: wails build -platform ${{ matrix.target.wails_platform }} -s
+
+      - name: Package and upload macOS app bundle
+        if: matrix.target.platform == 'macos-latest'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -n "${{ matrix.target.rust_target }}" ]; then
-            BUNDLE_DIR="target/${{ matrix.target.rust_target }}/release/bundle"
-          else
-            BUNDLE_DIR="target/release/bundle"
-          fi
-          if [ ! -d "$BUNDLE_DIR" ]; then
-            echo "::warning::bundle dir $BUNDLE_DIR not found; skipping bundle re-upload"
-            exit 0
-          fi
-          upload_one() {
-            for attempt in 1 2 3 4 5; do
-              if gh release upload "$RELEASE_TAG" "$1" --clobber; then return 0; fi
-              echo "::warning::upload $(basename "$1") attempt $attempt failed, retrying in 15s"
-              sleep 15
-            done
-            return 1
-          }
-          case "${{ matrix.target.rust_target }}" in
-            aarch64-apple-darwin) ARCH=aarch64 ;;
-            x86_64-apple-darwin) ARCH=x64 ;;
-            *) ARCH="" ;;
-          esac
-          fail=0
-          while IFS= read -r file; do
-            [ -n "$file" ] || continue
-            name="$(basename "$file")"
-            # Tauri's macOS updater bundle has no arch suffix on disk, while
-            # tauri-action uploads an arch-qualified name. Match that contract.
-            case "$name" in
-              *.app.tar.gz|*.app.tar.gz.sig)
-                if [ -n "$ARCH" ]; then
-                  base="${name%%.app.tar.gz*}"
-                  rest="${name#"$base"}"
-                  cp "$file" "$(dirname "$file")/${base}_${ARCH}${rest}"
-                  file="$(dirname "$file")/${base}_${ARCH}${rest}"
-                fi ;;
-            esac
-            upload_one "$file" || { echo "::error::failed to upload $(basename "$file")"; fail=1; }
-          done < <(find "$BUNDLE_DIR" -type f \( \
-            -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
-            -o -name '*-setup.exe' -o -name '*-setup.exe.sig' \
-            -o -name '*.msi' -o -name '*.msi.sig' \
-            -o -name '*.AppImage' -o -name '*.AppImage.sig' \
-            -o -name '*.deb' -o -name '*.deb.sig' \
-            -o -name '*.rpm' -o -name '*.rpm.sig' \) )
-          exit $fail
-
-      - name: Upload Windows portable exe
-        if: always() && matrix.target.platform == 'windows-latest'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
+          set -euo pipefail
           VERSION="${RELEASE_TAG#v}"
-          ARCH="${{ matrix.target.win_arch }}"
-          if [ -n "${{ matrix.target.rust_target }}" ]; then
-            SRC="target/${{ matrix.target.rust_target }}/release/${{ matrix.app.crate_bin }}.exe"
-          else
-            SRC="target/release/${{ matrix.app.crate_bin }}.exe"
-          fi
-          if [ ! -f "$SRC" ]; then
-            echo "::warning::cargo binary $SRC not found; skipping portable upload"
-            exit 0
-          fi
-          DEST="${{ matrix.app.product }}_${VERSION}_${ARCH}-portable.exe"
-          cp "$SRC" "$DEST"
+          APP_DIR="${{ matrix.app.project }}/build/bin/${{ matrix.app.product }}.app"
+          [ -d "$APP_DIR" ] || { echo "::error::app bundle $APP_DIR not found"; exit 1; }
+          DEST="${{ matrix.app.product }}_${VERSION}_${{ matrix.target.suffix }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$DEST"
           for attempt in 1 2 3 4 5; do
             if gh release upload "$RELEASE_TAG" "$DEST" --clobber; then exit 0; fi
-            echo "::warning::portable upload attempt $attempt failed, retrying in 10s"
-            sleep 10
+            echo "::warning::upload attempt $attempt failed, retrying in 15s"
+            sleep 15
           done
-          echo "::error::portable upload failed after 5 attempts"
+          echo "::error::upload failed after 5 attempts"
           exit 1
 
-  publish-manifest:
+      - name: Package and upload Linux binary
+        if: matrix.target.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          BIN="${{ matrix.app.project }}/build/bin/${{ matrix.app.product }}"
+          [ -f "$BIN" ] || { echo "::error::binary $BIN not found"; exit 1; }
+          DEST="${{ matrix.app.product }}_${VERSION}_${{ matrix.target.suffix }}.tar.gz"
+          tar -C "$(dirname "$BIN")" -czf "$DEST" "$(basename "$BIN")"
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$RELEASE_TAG" "$DEST" --clobber; then exit 0; fi
+            echo "::warning::upload attempt $attempt failed, retrying in 15s"
+            sleep 15
+          done
+          echo "::error::upload failed after 5 attempts"
+          exit 1
+
+      - name: Package and upload Windows executable
+        if: matrix.target.platform == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          BIN="${{ matrix.app.project }}/build/bin/${{ matrix.app.product }}.exe"
+          [ -f "$BIN" ] || { echo "::error::executable $BIN not found"; exit 1; }
+          DEST="${{ matrix.app.product }}_${VERSION}_${{ matrix.target.suffix }}.exe"
+          cp "$BIN" "$DEST"
+          for attempt in 1 2 3 4 5; do
+            if gh release upload "$RELEASE_TAG" "$DEST" --clobber; then exit 0; fi
+            echo "::warning::upload attempt $attempt failed, retrying in 15s"
+            sleep 15
+          done
+          echo "::error::upload failed after 5 attempts"
+          exit 1
+
+  publish-release:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -245,27 +223,6 @@ jobs:
             exit 1
           fi
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F draft=false
-
-      - name: Generate updater manifests
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/gen-update-manifest.mjs "$RELEASE_TAG"
-
-      - name: Upload updater manifests
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          for attempt in 1 2 3 4 5; do
-            if gh release upload "$RELEASE_TAG" \
-              latest-slave*.json \
-              latest-master*.json \
-              --clobber; then exit 0; fi
-            echo "::warning::manifest upload attempt $attempt failed, retrying in 10s"
-            sleep 10
-          done
-          echo "::error::manifest upload failed after 5 attempts"
-          exit 1
 
       - name: Render rich release body from CHANGELOG
         run: node scripts/build-release-notes.mjs "$RELEASE_TAG"

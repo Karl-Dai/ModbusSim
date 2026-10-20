@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-var Version = "0.17.4-go-dev"
+var Version = "0.17.4"
 
 type App struct {
 	mu      sync.RWMutex

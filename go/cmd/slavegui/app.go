@@ -19,7 +19,7 @@ import (
 )
 
 // Version may be set with -ldflags '-X main.Version=...'.
-var Version = "0.17.4-go-dev"
+var Version = "0.17.4"
 
 // App binds native Go DTOs to the desktop; the Manager owns all protocol state.
 type App struct {

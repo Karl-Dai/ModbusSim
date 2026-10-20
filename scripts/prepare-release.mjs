@@ -11,6 +11,17 @@ const VERSION_FILES = [
   'crates/modbusmaster-app/tauri.conf.json',
 ]
 
+// Go/Wails desktop apps carry the same release version in two more places:
+// the Wails bundle metadata and the Version binding shown in the About dialog.
+const WAILS_FILES = [
+  'go/cmd/slavegui/wails.json',
+  'go/cmd/mastergui/wails.json',
+]
+const GO_VERSION_FILES = [
+  'go/cmd/slavegui/app.go',
+  'go/cmd/mastergui/app.go',
+]
+
 const CATEGORY_ORDER = ['Added', 'Fixed', 'Changed', 'Documentation', 'Tests']
 const CATEGORY_TITLES = {
   Added: 'Added 新增',
@@ -100,6 +111,24 @@ export function updateJsonVersion(source, version) {
   return updated
 }
 
+export function updateProductVersion(source, version) {
+  const updated = source.replace(
+    /("productVersion"\s*:\s*")[^"]+(")/,
+    `$1${normalizeVersion(version)}$2`,
+  )
+  if (updated === source) throw new Error('could not update wails.json productVersion')
+  return updated
+}
+
+export function updateGoVersionVar(source, version) {
+  const updated = source.replace(
+    /(var Version = ")[^"]+(")/,
+    `$1${normalizeVersion(version)}$2`,
+  )
+  if (updated === source) throw new Error('could not update Go Version variable')
+  return updated
+}
+
 export function prependChangelog(source, section) {
   const firstRelease = source.indexOf('\n## [')
   if (firstRelease < 0) throw new Error('could not find the first CHANGELOG release section')
@@ -136,6 +165,16 @@ export function verifyPreparedRelease(root, tag) {
     if (!match || match[1] !== version) errors.push(`${path} is not version ${version}`)
   }
 
+  for (const path of WAILS_FILES) {
+    const match = read(root, path).match(/"productVersion"\s*:\s*"([^"]+)"/)
+    if (!match || match[1] !== version) errors.push(`${path} is not version ${version}`)
+  }
+
+  for (const path of GO_VERSION_FILES) {
+    const match = read(root, path).match(/var Version = "([^"]+)"/)
+    if (!match || match[1] !== version) errors.push(`${path} is not version ${version}`)
+  }
+
   if (!read(root, 'CHANGELOG.md').includes(`## [${version}]`)) {
     errors.push(`CHANGELOG.md has no ${version} section`)
   }
@@ -160,6 +199,12 @@ export function prepareRelease(root, { fromTag, version, date, subjects }) {
     write(root, path, path.endsWith('.json')
       ? updateJsonVersion(source, nextVersion)
       : updateCargoToml(source, nextVersion))
+  }
+  for (const path of WAILS_FILES) {
+    write(root, path, updateProductVersion(read(root, path), nextVersion))
+  }
+  for (const path of GO_VERSION_FILES) {
+    write(root, path, updateGoVersionVar(read(root, path), nextVersion))
   }
   const section = buildChangelogSection(nextVersion, date, subjects)
   write(root, 'CHANGELOG.md', prependChangelog(read(root, 'CHANGELOG.md'), section))

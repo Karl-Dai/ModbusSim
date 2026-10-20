@@ -10,7 +10,9 @@ import {
   prepareRelease,
   prependChangelog,
   updateCargoToml,
+  updateGoVersionVar,
   updateJsonVersion,
+  updateProductVersion,
 } from './prepare-release.mjs'
 
 describe('prepare-release', () => {
@@ -50,6 +52,10 @@ describe('prepare-release', () => {
       .includes('version = "0.17.2"'))
     assert.ok(updateJsonVersion('{\n  "version": "0.17.1",\n  "x": true\n}\n', '0.17.2')
       .includes('"version": "0.17.2"'))
+    assert.ok(updateProductVersion('{\n  "info": {\n    "productVersion": "0.17.1"\n  }\n}\n', '0.17.2')
+      .includes('"productVersion": "0.17.2"'))
+    assert.ok(updateGoVersionVar('var Version = "0.17.1-go-dev"\n', '0.17.2')
+      .includes('var Version = "0.17.2"'))
   })
 
   it('inserts a new changelog section without deleting history', () => {
@@ -60,13 +66,18 @@ describe('prepare-release', () => {
     assert.ok(changelog.includes('- old'))
   })
 
-  it('prepares and verifies all four ModbusSim version files together', () => {
+  it('prepares and verifies all ModbusSim version files together', () => {
     const root = mkdtempSync(join(tmpdir(), 'modbussim-release-'))
     try {
       for (const dir of ['crates/modbussim-app', 'crates/modbusmaster-app']) {
         mkdirSync(join(root, dir), { recursive: true })
         writeFileSync(join(root, dir, 'Cargo.toml'), '[package]\nname = "app"\nversion = "0.17.1"\n')
         writeFileSync(join(root, dir, 'tauri.conf.json'), '{\n  "version": "0.17.1",\n  "x": true\n}\n')
+      }
+      for (const dir of ['go/cmd/slavegui', 'go/cmd/mastergui']) {
+        mkdirSync(join(root, dir), { recursive: true })
+        writeFileSync(join(root, dir, 'wails.json'), '{\n  "info": {\n    "productVersion": "0.17.1"\n  }\n}\n')
+        writeFileSync(join(root, dir, 'app.go'), 'package main\n\nvar Version = "0.17.1-go-dev"\n')
       }
       writeFileSync(
         join(root, 'CHANGELOG.md'),
@@ -83,6 +94,10 @@ describe('prepare-release', () => {
       for (const dir of ['crates/modbussim-app', 'crates/modbusmaster-app']) {
         assert.ok(readFileSync(join(root, dir, 'Cargo.toml'), 'utf8').includes('version = "0.17.2"'))
         assert.ok(readFileSync(join(root, dir, 'tauri.conf.json'), 'utf8').includes('"version": "0.17.2"'))
+      }
+      for (const dir of ['go/cmd/slavegui', 'go/cmd/mastergui']) {
+        assert.ok(readFileSync(join(root, dir, 'wails.json'), 'utf8').includes('"productVersion": "0.17.2"'))
+        assert.ok(readFileSync(join(root, dir, 'app.go'), 'utf8').includes('var Version = "0.17.2"'))
       }
       assert.ok(readFileSync(join(root, 'CHANGELOG.md'), 'utf8').includes('## [0.17.2] - 2026-08-13'))
     } finally {
