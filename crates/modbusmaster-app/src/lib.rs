@@ -60,6 +60,7 @@ pub fn run() {
             commands::convert_modbus_to_plc,
             commands::calculate_crc16,
             commands::calculate_lrc,
+            commands::pick_certificate_file,
             commands::parse_hex,
             // Project file commands
             commands::save_project_file,

@@ -1717,6 +1717,29 @@ pub fn list_serial_ports() -> Vec<transport::SerialPortInfo> {
     transport::list_serial_ports()
 }
 
+/// Opens a native file picker that is NOT attached to the app window.
+///
+/// tauri-plugin-dialog passes the app window to rfd, which makes macOS show
+/// the panel as a window sheet — and sheets cannot be moved. Building the rfd
+/// dialog without a parent turns it into a free-standing, movable modal
+/// panel. rfd itself marshals the call onto the main thread, so running this
+/// on a blocking worker is safe on all platforms.
+#[tauri::command]
+pub async fn pick_certificate_file(filters: Vec<(String, Vec<String>)>) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut dialog = rfd::FileDialog::new();
+        for (name, extensions) in &filters {
+            dialog = dialog.add_filter(name, extensions);
+        }
+        dialog
+            .pick_file()
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 #[cfg(test)]
 mod write_request_tests {
     use super::*;

@@ -23,6 +23,7 @@ tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9.2"
 tauri-plugin-dialog = "2"
+rfd = { version = "0.16", default-features = false }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-store = "2"
