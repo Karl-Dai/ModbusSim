@@ -8,6 +8,7 @@ package slave
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 
 	"github.com/Karl-Dai/ModbusSim/go/internal/logcol"
@@ -30,30 +31,48 @@ func NewDevice(slaveID uint8, name string) *Device {
 }
 
 // WithDefaultRegisters pre-fills FC1/FC2/FC3/FC4 definitions for addresses
-// 0..=maxAddress and initializes the register maps, mirroring Rust's
+// 0..=maxAddress, each seeded to zero. Mirrors Rust's
 // SlaveDevice::with_default_registers.
 func WithDefaultRegisters(slaveID uint8, name string, maxAddress uint16) *Device {
+	return newSeededDevice(slaveID, name, maxAddress, false)
+}
+
+// WithRandomRegisters is WithDefaultRegisters with every point seeded from the
+// generator: a random bit for the two bit areas, a random 16-bit word for the
+// two register areas. Mirrors Rust's SlaveDevice::with_random_registers.
+func WithRandomRegisters(slaveID uint8, name string, maxAddress uint16) *Device {
+	return newSeededDevice(slaveID, name, maxAddress, true)
+}
+
+func newSeededDevice(slaveID uint8, name string, maxAddress uint16, random bool) *Device {
 	d := NewDevice(slaveID, name)
 	d.RegisterDefs = make([]register.RegisterDef, 0, (int(maxAddress)+1)*4)
-	for addr := uint16(0); addr <= maxAddress; addr++ {
+	// Counting in int keeps the inclusive range finite at address 65535.
+	for i := 0; i <= int(maxAddress); i++ {
+		addr := uint16(i)
 		d.RegisterDefs = append(d.RegisterDefs,
 			register.RegisterDef{Address: addr, RegisterType: register.Coil, DataType: register.TypeBool, Endian: register.DefaultEndian},
 			register.RegisterDef{Address: addr, RegisterType: register.DiscreteInput, DataType: register.TypeBool, Endian: register.DefaultEndian},
 			register.RegisterDef{Address: addr, RegisterType: register.HoldingRegType, DataType: register.TypeUInt16, Endian: register.DefaultEndian},
 			register.RegisterDef{Address: addr, RegisterType: register.InputRegister, DataType: register.TypeUInt16, Endian: register.DefaultEndian},
 		)
-		d.RegisterMap.WriteCoil(addr, false)
-		if d.RegisterMap.DiscreteInputs == nil {
-			d.RegisterMap.DiscreteInputs = map[uint16]bool{}
-		}
-		d.RegisterMap.DiscreteInputs[addr] = false
-		d.RegisterMap.WriteHoldingRegister(addr, 0)
-		if d.RegisterMap.InputRegisters == nil {
-			d.RegisterMap.InputRegisters = map[uint16]uint16{}
-		}
-		d.RegisterMap.InputRegisters[addr] = 0
+		d.RegisterMap.WriteCoil(addr, randomBit(random))
+		d.RegisterMap.DiscreteInputs[addr] = randomBit(random)
+		d.RegisterMap.WriteHoldingRegister(addr, randomWord(random))
+		d.RegisterMap.InputRegisters[addr] = randomWord(random)
 	}
 	return d
+}
+
+func randomBit(random bool) bool {
+	return random && rand.Intn(2) == 1
+}
+
+func randomWord(random bool) uint16 {
+	if !random {
+		return 0
+	}
+	return uint16(rand.Intn(1 << 16))
 }
 
 // Change is one register write triggered by an incoming Modbus request,
@@ -76,6 +95,10 @@ type Server struct {
 	devices        map[uint8]*Device
 	Log            *logcol.Collector // nil disables logging
 	ChangeCallback ChangeCallback    // nil disables change callbacks
+	// Clients tracks the live sockets of the TCP-family listeners; nil
+	// disables tracking. Replace it (not its contents) when restarting a
+	// connection, because CloseAll latches the registry shut.
+	Clients *ConnectedClients
 }
 
 // NewServer creates a server with an empty device registry.
@@ -106,6 +129,28 @@ func (s *Server) RemoveDevice(slaveID uint8) error {
 	return nil
 }
 
+// RenameDevice moves a device to a new slave ID and sets its name, returning
+// the number of defined points. Mirrors Rust's update_slave_device, including
+// its "slave ID N already exists" guard on the target.
+func (s *Server) RenameDevice(originalID, newID uint8, name string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if newID != originalID {
+		if _, taken := s.devices[newID]; taken {
+			return 0, fmt.Errorf("slave ID %d already exists", newID)
+		}
+	}
+	device, ok := s.devices[originalID]
+	if !ok {
+		return 0, fmt.Errorf("slave %d not found", originalID)
+	}
+	delete(s.devices, originalID)
+	device.SlaveID = newID
+	device.Name = name
+	s.devices[newID] = device
+	return len(device.RegisterDefs), nil
+}
+
 // GetDevice returns a snapshot reference to a device (do not mutate maps
 // without holding the server lock via Read/Write helpers).
 func (s *Server) GetDevice(slaveID uint8) (*Device, bool) {
@@ -124,6 +169,33 @@ func (s *Server) ListDevices() []uint8 {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// UpdateDevice runs fn with the device registry write-locked, so an editing
+// caller cannot race the listeners that mutate the same register maps. fn must
+// not call back into the Server.
+func (s *Server) UpdateDevice(slaveID uint8, fn func(*Device)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	device, ok := s.devices[slaveID]
+	if !ok {
+		return fmt.Errorf("slave %d not found", slaveID)
+	}
+	fn(device)
+	return nil
+}
+
+// ViewDevice is UpdateDevice with a read lock, for callers that only inspect a
+// device.
+func (s *Server) ViewDevice(slaveID uint8, fn func(*Device)) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	device, ok := s.devices[slaveID]
+	if !ok {
+		return fmt.Errorf("slave %d not found", slaveID)
+	}
+	fn(device)
+	return nil
 }
 
 // exception codes.

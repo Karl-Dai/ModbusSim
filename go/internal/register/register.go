@@ -90,6 +90,29 @@ type DefinitionError struct {
 
 func (e *DefinitionError) Error() string { return e.Msg }
 
+// Validate checks a single definition's own fields. Rust got this for free:
+// deserializing a project file rejected unknown enum tags, while a Go struct
+// accepts any string. An empty endian is allowed and means big, the way Rust's
+// Default did for the field serde omitted.
+func (d RegisterDef) Validate() error {
+	switch d.RegisterType {
+	case Coil, DiscreteInput, InputRegister, HoldingRegType:
+	default:
+		return &DefinitionError{Msg: fmt.Sprintf("unknown register type: %s", d.RegisterType)}
+	}
+	switch d.DataType {
+	case TypeBool, TypeUInt16, TypeInt16, TypeUInt32, TypeInt32, TypeFloat:
+	default:
+		return &DefinitionError{Msg: fmt.Sprintf("unknown data type: %s", d.DataType)}
+	}
+	switch d.Endian {
+	case "", EndianBig, EndianLittle, EndianMidBig, EndianMidLittle:
+	default:
+		return &DefinitionError{Msg: fmt.Sprintf("unknown endian: %s", d.Endian)}
+	}
+	return nil
+}
+
 // ValidateDefinitions validates a complete point-definition set in O(n log n)
 // time by sorting per area and comparing adjacent ranges.
 func ValidateDefinitions(defs []RegisterDef) error {
@@ -100,6 +123,9 @@ func ValidateDefinitions(defs []RegisterDef) error {
 	ranges := make([]rng, 0, len(defs))
 	for i := range defs {
 		d := defs[i]
+		if err := d.Validate(); err != nil {
+			return err
+		}
 		start, end, ok := OccupiedRange(d)
 		if !ok {
 			return &DefinitionError{Msg: fmt.Sprintf("register %s@%d exceeds address 65535", d.RegisterType, d.Address)}
@@ -282,27 +308,21 @@ func (m *RegisterMap) EnsureFromDef(def RegisterDef) {
 	if !ok {
 		return
 	}
-	switch def.RegisterType {
-	case Coil:
-		for a := start; a <= end; a++ {
+	for _, a := range addressesIn(start, end) {
+		switch def.RegisterType {
+		case Coil:
 			if _, exists := m.Coils[a]; !exists {
 				m.Coils[a] = false
 			}
-		}
-	case DiscreteInput:
-		for a := start; a <= end; a++ {
+		case DiscreteInput:
 			if _, exists := m.DiscreteInputs[a]; !exists {
 				m.DiscreteInputs[a] = false
 			}
-		}
-	case HoldingRegType:
-		for a := start; a <= end; a++ {
+		case HoldingRegType:
 			if _, exists := m.HoldingRegisters[a]; !exists {
 				m.HoldingRegisters[a] = 0
 			}
-		}
-	case InputRegister:
-		for a := start; a <= end; a++ {
+		case InputRegister:
 			if _, exists := m.InputRegisters[a]; !exists {
 				m.InputRegisters[a] = 0
 			}
@@ -317,22 +337,112 @@ func (m *RegisterMap) RemoveFromDef(def RegisterDef) {
 	if !ok {
 		return
 	}
-	switch def.RegisterType {
-	case Coil:
-		for a := start; a <= end; a++ {
+	for _, a := range addressesIn(start, end) {
+		switch def.RegisterType {
+		case Coil:
 			delete(m.Coils, a)
-		}
-	case DiscreteInput:
-		for a := start; a <= end; a++ {
+		case DiscreteInput:
 			delete(m.DiscreteInputs, a)
-		}
-	case HoldingRegType:
-		for a := start; a <= end; a++ {
+		case HoldingRegType:
 			delete(m.HoldingRegisters, a)
-		}
-	case InputRegister:
-		for a := start; a <= end; a++ {
+		case InputRegister:
 			delete(m.InputRegisters, a)
+		}
+	}
+}
+
+// ReplaceDef swaps one point definition for another, moving the occupied raw
+// range while preserving the stored values as far as the new range overlaps the
+// old one within the same Modbus area (mirrors RegisterMap::replace_def).
+// Switching areas, or shrinking a 32-bit point to 16 bits, drops the values
+// that no longer have a slot.
+func (m *RegisterMap) ReplaceDef(original, replacement RegisterDef) {
+	var bools []bool
+	var words []uint16
+	if original.RegisterType == replacement.RegisterType {
+		if start, end, ok := OccupiedRange(original); ok {
+			addrs := addressesIn(start, end)
+			switch original.RegisterType {
+			case Coil:
+				for _, a := range addrs {
+					bools = append(bools, m.Coils[a])
+				}
+			case DiscreteInput:
+				for _, a := range addrs {
+					bools = append(bools, m.DiscreteInputs[a])
+				}
+			case HoldingRegType:
+				for _, a := range addrs {
+					words = append(words, m.HoldingRegisters[a])
+				}
+			case InputRegister:
+				for _, a := range addrs {
+					words = append(words, m.InputRegisters[a])
+				}
+			}
+		}
+	}
+
+	m.RemoveFromDef(original)
+	m.EnsureFromDef(replacement)
+
+	for off, value := range bools {
+		addr, ok := addressAt(replacement.Address, off)
+		if !ok {
+			break
+		}
+		switch replacement.RegisterType {
+		case Coil:
+			if _, exists := m.Coils[addr]; exists {
+				m.Coils[addr] = value
+			}
+		case DiscreteInput:
+			if _, exists := m.DiscreteInputs[addr]; exists {
+				m.DiscreteInputs[addr] = value
+			}
+		}
+	}
+
+	// A narrower replacement keeps only its own leading words.
+	if count := int(replacement.DataType.RegisterCount()); count < len(words) {
+		words = words[:count]
+	}
+	for off, value := range words {
+		addr, ok := addressAt(replacement.Address, off)
+		if !ok {
+			break
+		}
+		switch replacement.RegisterType {
+		case HoldingRegType:
+			if _, exists := m.HoldingRegisters[addr]; exists {
+				m.HoldingRegisters[addr] = value
+			}
+		case InputRegister:
+			if _, exists := m.InputRegisters[addr]; exists {
+				m.InputRegisters[addr] = value
+			}
+		}
+	}
+}
+
+// addressAt offsets from base and reports failure instead of wrapping.
+func addressAt(base uint16, offset int) (uint16, bool) {
+	sum := uint32(base) + uint32(offset)
+	if sum > 65535 {
+		return 0, false
+	}
+	return uint16(sum), true
+}
+
+// addressesIn lists the inclusive [start, end] range. A plain `a <= end` loop
+// would wrap past 65535 and never terminate, which is why the exit test is
+// inside the body.
+func addressesIn(start, end uint16) []uint16 {
+	out := make([]uint16, 0, int(end)-int(start)+1)
+	for a := start; ; a++ {
+		out = append(out, a)
+		if a == end {
+			return out
 		}
 	}
 }

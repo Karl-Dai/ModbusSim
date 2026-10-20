@@ -97,10 +97,13 @@ func DecodeASCII(data []byte) (*ASCIIFrame, error) {
 	}
 	decoded := make([]byte, len(hexBytes)/2)
 	for i := 0; i < len(hexBytes); i += 2 {
-		hi, ok1 := hexVal(hexBytes[i])
-		lo, ok2 := hexVal(hexBytes[i+1])
-		if !ok1 || !ok2 {
+		hi, ok := hexVal(hexBytes[i])
+		if !ok {
 			return nil, fmt.Errorf("invalid hex character: %c", hexBytes[i])
+		}
+		lo, ok := hexVal(hexBytes[i+1])
+		if !ok {
+			return nil, fmt.Errorf("invalid hex character: %c", hexBytes[i+1])
 		}
 		decoded[i/2] = hi<<4 | lo
 	}

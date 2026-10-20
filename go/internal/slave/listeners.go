@@ -54,11 +54,27 @@ func RunTCP(ctx context.Context, ln net.Listener, srv *Server) error {
 			}
 			return fmt.Errorf("accept error: %w", err)
 		}
+		guard, err := srv.trackClient(conn)
+		if err != nil {
+			continue // registry closed; socket already shut down
+		}
 		go func() {
+			defer guard.Release()
 			defer conn.Close()
 			handleMBAPClient(ctx, conn, srv)
 		}()
 	}
+}
+
+// trackClient registers an accepted socket with the server's client registry.
+// A nil guard with a nil error means tracking is disabled. When Track rejects
+// the socket -- the registry was closed by Stop -- it has already been closed,
+// so callers must not close it again.
+func (s *Server) trackClient(conn net.Conn) (*ClientGuard, error) {
+	if s.Clients == nil {
+		return nil, nil
+	}
+	return s.Clients.Track(conn)
 }
 
 // RunTCPServer binds host:port and runs RunTCP on it.
@@ -164,8 +180,16 @@ func RunTLS(ctx context.Context, ln net.Listener, tlsConfig *tls.Config, srv *Se
 			}
 			return fmt.Errorf("TLS accept error: %w", err)
 		}
+		// Track the raw socket, like Rust's tls_stream.get_ref(): the peer
+		// address is known before the handshake and a failed handshake must
+		// still unregister the client.
+		guard, err := srv.trackClient(conn)
+		if err != nil {
+			continue // registry closed; socket already shut down
+		}
 		tlsConn := tls.Server(conn, tlsConfig)
 		go func() {
+			defer guard.Release()
 			defer tlsConn.Close()
 			// Handshake with a deadline so a bad client cannot hang a goroutine.
 			_ = tlsConn.SetDeadline(time.Now().Add(10 * time.Second))
@@ -203,7 +227,12 @@ func RunRTUOverTCP(ctx context.Context, ln net.Listener, srv *Server) error {
 			}
 			return fmt.Errorf("RTU-over-TCP accept error: %w", err)
 		}
+		guard, err := srv.trackClient(conn)
+		if err != nil {
+			continue // registry closed; socket already shut down
+		}
 		go func() {
+			defer guard.Release()
 			defer conn.Close()
 			handleRTUOverTCPClient(ctx, conn, srv)
 		}()

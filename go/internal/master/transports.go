@@ -2,7 +2,6 @@
 package master
 
 import (
-	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -33,7 +32,10 @@ type tcpTransport struct {
 }
 
 func newTCPTransport(host string, port uint16, proxy socks5.Config, timeout time.Duration) (*tcpTransport, error) {
-	conn, err := socks5.ConnectTCP(host, port, proxy, timeout)
+	return newTCPTransportContext(context.Background(), host, port, proxy, timeout)
+}
+func newTCPTransportContext(ctx context.Context, host string, port uint16, proxy socks5.Config, timeout time.Duration) (*tcpTransport, error) {
+	conn, err := socks5.ConnectTCPContext(ctx, host, port, proxy, timeout)
 	if err != nil {
 		return nil, mapConnectError(err)
 	}
@@ -56,9 +58,12 @@ func (t *tcpTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Durat
 	if err := mbap.WriteFrame(t.conn, tid, slaveID, reqPDU); err != nil {
 		return nil, errTransport(fmt.Sprintf("TCP write: %v", err))
 	}
-	_, resp, err := mbap.ReadFrame(bufio.NewReader(t.conn))
+	header, resp, err := mbap.ReadFrame(t.conn)
 	if err != nil {
 		return nil, errTransport(fmt.Sprintf("TCP read: %v", err))
+	}
+	if header.TransactionID != tid || header.UnitID != slaveID || header.ProtocolID != 0 {
+		return nil, errTransport("MBAP response identity mismatch")
 	}
 	return resp, nil
 }
@@ -123,7 +128,7 @@ func newTLSTransport(ctx context.Context, host string, port uint16, cfg TLSConfi
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	raw, err := socks5.ConnectTCP(host, port, proxy, timeout)
+	raw, err := socks5.ConnectTCPContext(ctx, host, port, proxy, timeout)
 	if err != nil {
 		return nil, mapConnectError(err)
 	}
@@ -144,9 +149,12 @@ func (t *tlsTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Durat
 	if err := mbap.WriteFrame(t.conn, tid, slaveID, reqPDU); err != nil {
 		return nil, errTransport(fmt.Sprintf("TLS write: %v", err))
 	}
-	_, resp, err := mbap.ReadFrame(bufio.NewReader(t.conn))
+	header, resp, err := mbap.ReadFrame(t.conn)
 	if err != nil {
 		return nil, errTransport(fmt.Sprintf("TLS read: %v", err))
+	}
+	if header.TransactionID != tid || header.UnitID != slaveID || header.ProtocolID != 0 {
+		return nil, errTransport("MBAP response identity mismatch")
 	}
 	return resp, nil
 }
@@ -308,7 +316,10 @@ type rtuTCPTransport struct {
 }
 
 func newRTUTCPTransport(host string, port uint16, proxy socks5.Config, timeout time.Duration) (*rtuTCPTransport, error) {
-	conn, err := socks5.ConnectTCP(host, port, proxy, timeout)
+	return newRTUTCPTransportContext(context.Background(), host, port, proxy, timeout)
+}
+func newRTUTCPTransportContext(ctx context.Context, host string, port uint16, proxy socks5.Config, timeout time.Duration) (*rtuTCPTransport, error) {
+	conn, err := socks5.ConnectTCPContext(ctx, host, port, proxy, timeout)
 	if err != nil {
 		return nil, mapConnectError(err)
 	}
@@ -326,9 +337,6 @@ func (t *rtuTCPTransport) exchange(slaveID uint8, reqPDU []byte, timeout time.Du
 	var acc []byte
 	buf := make([]byte, 512)
 	for {
-		if err := t.conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-			return nil, errTransport(err.Error())
-		}
 		n, err := t.conn.Read(buf)
 		if n > 0 {
 			acc = append(acc, buf[:n]...)

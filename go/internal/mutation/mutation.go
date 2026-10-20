@@ -4,6 +4,7 @@
 package mutation
 
 import (
+	"errors"
 	"math"
 	"math/rand"
 
@@ -22,6 +23,10 @@ const (
 
 // DefaultPeriodMs mirrors Rust's DEFAULT_PERIOD_MS.
 const DefaultPeriodMs = 1000
+
+// BaseTickMS is the scheduler resolution, mirroring Rust's
+// MUTATION_BASE_TICK_MS. Every persisted period is clamped up to it.
+const BaseTickMS = 100
 
 // Config is the per-point mutation configuration, persisted on RegisterDef.
 type Config struct {
@@ -186,4 +191,33 @@ func clamp(v, lo, hi float64) float64 {
 		return hi
 	}
 	return v
+}
+
+// Normalize enforces the mutation invariants on cfg in place, mirroring the
+// app's normalize_mutation_config: bit areas always flip and their numeric
+// fields are deliberately left unvalidated, register areas need finite,
+// ordered bounds and a positive step when ramping, and every period is at
+// least one base tick.
+func Normalize(registerType register.RegisterType, cfg *Config) error {
+	if registerType == register.Coil || registerType == register.DiscreteInput {
+		cfg.Mode = ModeFlip
+	} else {
+		if !isFinite(cfg.Min) || !isFinite(cfg.Max) || !isFinite(cfg.Step) {
+			return errors.New("mutation min, max and step must be finite")
+		}
+		if cfg.Min > cfg.Max {
+			return errors.New("mutation min must not exceed max")
+		}
+		if (cfg.Mode == ModeIncrement || cfg.Mode == ModeDecrement) && cfg.Step <= 0 {
+			return errors.New("mutation step must be greater than zero")
+		}
+	}
+	if cfg.PeriodMs < BaseTickMS {
+		cfg.PeriodMs = BaseTickMS
+	}
+	return nil
+}
+
+func isFinite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }

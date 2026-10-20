@@ -1,0 +1,18 @@
+The master asks slave 1 to "Read Holding Registers", but the data area is incomplete (should be 4 bytes, got 0)
+
+── Byte-by-byte ──
+01     Slave address  device 1
+03     Function code  0x03 = Read Holding Registers
+40 21  CRC check      CRC16 check passed
+
+── Notes ──
+CRC check passed
+Could not determine the direction from the frame structure; parsed as a request — switch the direction manually if that is wrong
+The request data area for this function should be 4 bytes, got 0; the frame may be incomplete
+
+── Technical details ──
+Transport: Modbus RTU (4 bytes total)
+Slave address: 1
+Function: 0x03 (Read Holding Registers)
+CRC16: 0x2140 (wire order 40 21, passed)
+PDU: 03

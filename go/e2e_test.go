@@ -139,6 +139,8 @@ func TestMasterSlaveRTUOverTCP(t *testing.T) {
 // client-certificate authentication, using throwaway PKCS#12 identities.
 func TestMasterSlaveTLSMutualAuth(t *testing.T) {
 	srv := newSlave(t, 100)
+	srv.Clients = slave.NewConnectedClients()
+	clients := srv.Clients
 
 	// Generate CA + server + client certs in memory.
 	caKey, _ := ecdsa.GenerateKey(ellipticCurve(), randReader)
@@ -249,6 +251,9 @@ func TestMasterSlaveTLSMutualAuth(t *testing.T) {
 	if res.Registers[0] != 0xCAFE {
 		t.Fatalf("read = % X", res.Registers)
 	}
+	if waitForClientCount(clients, 1) != 1 {
+		t.Fatalf("tracked clients = %d, want the live master", clients.Count())
+	}
 
 	// A client without a certificate must fail the handshake.
 	noCert := master.NewConnection(
@@ -258,6 +263,25 @@ func TestMasterSlaveTLSMutualAuth(t *testing.T) {
 	if err := noCert.Connect(ctx); err == nil {
 		t.Fatal("client without cert should be rejected")
 	}
+
+	// The TLS listener tracks the raw socket before the handshake, so the
+	// rejected connection must be registered and then released rather than
+	// leaking a second entry.
+	if n := waitForClientCount(clients, 1); n != 1 {
+		t.Errorf("tracked clients after rejected handshake = %d, want 1", n)
+	}
+}
+
+// waitForClientCount polls the registry until it reports want clients and
+// returns the final count.
+func waitForClientCount(c *slave.ConnectedClients, want int) int {
+	for i := 0; i < 100; i++ {
+		if n := c.Count(); n == want {
+			return n
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return c.Count()
 }
 
 // TestLogCapture verifies the log collector receives RX/TX entries.

@@ -1,0 +1,32 @@
+The master asks slave 1 to "Write Multiple Registers": write 2 registers starting from 40001
+
+── Data details ──
+40001 = 10 (0x000A)
+40002 = 257 (0x0101)
+
+── Byte-by-byte ──
+00 01              Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00              Protocol identifier     0x0000 = standard Modbus protocol
+00 0D              Length                  13 more bytes follow (unit identifier + data)
+01                 Unit identifier         slave address: device 1
+10                 Function code           0x10 = Write Multiple Registers
+00 00              Start address           protocol address 0, PLC address 40001
+00 02              Write quantity          write 2 registers
+06                 Byte count              6 bytes of write data
+00 0A 01 01 00 00  Write data              every 2 bytes are one register value to write
+
+── Notes ──
+Writing 2 registers needs 4 data bytes, but the byte count says 6
+
+── Technical details ──
+Transport: Modbus TCP (19 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 13 (13 bytes actually follow)
+Unit ID: 1
+Function: 0x10 (Write Multiple Registers)
+Start address: 0 (PLC 40001)
+Write quantity: 2
+Byte count: 6
+Data: 00 0A 01 01 00 00
+PDU: 10 00 00 00 02 06 00 0A 01 01 00 00

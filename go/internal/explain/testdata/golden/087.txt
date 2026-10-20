@@ -1,0 +1,21 @@
+The master asks slave 1 to "Read Holding Registers": read 10 registers starting from 40001
+
+── Byte-by-byte ──
+01     Slave address  device 1
+03     Function code  0x03 = Read Holding Registers
+00 00  Start address  protocol address 0, PLC address 40001
+00 0A  Read quantity  read 10 registers
+C5 CD  CRC check      CRC16 check passed
+
+── Notes ──
+Auto-detected as Modbus RTU: CRC16 check passed
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (8 bytes total)
+Slave address: 1
+Function: 0x03 (Read Holding Registers)
+Start address: 0 (PLC 40001)
+Quantity: 10
+CRC16: 0xCDC5 (wire order C5 CD, passed)
+PDU: 03 00 00 00 0A

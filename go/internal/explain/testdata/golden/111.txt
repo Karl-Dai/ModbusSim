@@ -1,0 +1,2 @@
+!!ERROR!!
+Frame too short: Modbus RTU needs at least 4 bytes (address + function code + 2-byte CRC), got 2

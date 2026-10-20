@@ -1,0 +1,2 @@
+!!ERROR!!
+invalid hex string: invalid hex value '0Z'

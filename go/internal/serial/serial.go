@@ -3,7 +3,13 @@
 // Ported from crates/modbussim-core/src/transport.rs (serial parts).
 package serial
 
-import "time"
+import (
+	"sort"
+	"strings"
+	"time"
+
+	goserial "go.bug.st/serial"
+)
 
 // Parity mirrors transport.rs's Parity enum (serde snake_case).
 type Parity string
@@ -42,4 +48,27 @@ func InterframeDelayUS(baudRate uint32) uint64 {
 // InterframeDelay returns the delay as a Duration.
 func InterframeDelay(baudRate uint32) time.Duration {
 	return time.Duration(InterframeDelayUS(baudRate)) * time.Microsecond
+}
+
+// Valid mirrors the slave app's serial transport check: a port name with at
+// least one non-blank character (the trimmed value is only tested; the stored
+// name is used as-is), a non-zero baud rate, 5..8 data bits and 1..2 stop
+// bits. Parity is unconstrained because any Parity value is defined.
+func (c Config) Valid() bool {
+	return strings.TrimSpace(c.Port) != "" &&
+		c.BaudRate != 0 &&
+		c.DataBits >= 5 && c.DataBits <= 8 &&
+		c.StopBits >= 1 && c.StopBits <= 2
+}
+
+// ListPorts returns the serial ports present on the machine, sorted, for the
+// GUI's port picker. This queries the OS, so an empty result is normal on a
+// machine with no serial hardware.
+func ListPorts() ([]string, error) {
+	ports, err := goserial.GetPortsList()
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(ports)
+	return ports, nil
 }

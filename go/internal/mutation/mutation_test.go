@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"math"
 	"testing"
 
 	"github.com/Karl-Dai/ModbusSim/go/internal/register"
@@ -116,4 +117,86 @@ func TestApplyPointMutationFloat32Endian(t *testing.T) {
 func encodeFloat(v float64) []uint16 {
 	regs, _ := register.EncodeValue(v, register.TypeFloat, register.DefaultEndian)
 	return regs
+}
+
+func TestNormalizeBitAreasForceFlip(t *testing.T) {
+	for _, rt := range []register.RegisterType{register.Coil, register.DiscreteInput} {
+		cfg := Config{Enabled: true, Mode: ModeRandom, PeriodMs: 1, Min: math.NaN(), Max: 1e9, Step: -5}
+		// Bit areas ignore the numeric fields entirely, so nonsense is accepted.
+		if err := Normalize(rt, &cfg); err != nil {
+			t.Fatalf("%s: %v", rt, err)
+		}
+		if cfg.Mode != ModeFlip {
+			t.Errorf("%s mode = %s, want flip", rt, cfg.Mode)
+		}
+		if cfg.PeriodMs != BaseTickMS {
+			t.Errorf("%s period = %d, clamped to %d", rt, cfg.PeriodMs, BaseTickMS)
+		}
+	}
+}
+
+func TestNormalizeRejectsBadNumbers(t *testing.T) {
+	tests := []struct {
+		name  string
+		cfg   Config
+		wants string
+	}{
+		{
+			"nan min",
+			Config{Mode: ModeIncrement, Min: math.NaN(), Max: 10, Step: 1},
+			"mutation min, max and step must be finite",
+		},
+		{
+			"inf max",
+			Config{Mode: ModeRandom, Min: 0, Max: math.Inf(1), Step: 1},
+			"mutation min, max and step must be finite",
+		},
+		{
+			"min above max",
+			Config{Mode: ModeIncrement, Min: 20, Max: 10, Step: 1},
+			"mutation min must not exceed max",
+		},
+		{
+			"zero step while ramping",
+			Config{Mode: ModeIncrement, Min: 0, Max: 10, Step: 0},
+			"mutation step must be greater than zero",
+		},
+		{
+			"negative step while ramping down",
+			Config{Mode: ModeDecrement, Min: 0, Max: 10, Step: -1},
+			"mutation step must be greater than zero",
+		},
+	}
+	for _, tc := range tests {
+		cfg := tc.cfg
+		err := Normalize(register.HoldingRegType, &cfg)
+		if err == nil || err.Error() != tc.wants {
+			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.wants)
+		}
+	}
+}
+
+func TestNormalizeAcceptsAndClamps(t *testing.T) {
+	// A random mode may keep a zero step, and equal bounds are legal.
+	cfg := Config{Mode: ModeRandom, PeriodMs: 5000, Min: 7, Max: 7, Step: 0}
+	if err := Normalize(register.HoldingRegType, &cfg); err != nil {
+		t.Fatalf("random with zero step: %v", err)
+	}
+	if cfg.PeriodMs != 5000 {
+		t.Errorf("period changed to %d", cfg.PeriodMs)
+	}
+
+	// Flip on a register area need not ramp, so a zero step passes too.
+	cfg = Config{Mode: ModeFlip, PeriodMs: 10, Min: 0, Max: 100, Step: 0}
+	if err := Normalize(register.InputRegister, &cfg); err != nil {
+		t.Fatalf("flip with zero step: %v", err)
+	}
+	if cfg.PeriodMs != BaseTickMS {
+		t.Errorf("period = %d, want clamped to %d", cfg.PeriodMs, BaseTickMS)
+	}
+
+	// Inverted bounds are rejected even though ComputeNextValue would swap them.
+	if err := Normalize(register.HoldingRegType, &Config{Mode: ModeFlip, Min: 10, Max: 0}); err == nil {
+		t.Error("min above max should be rejected for register areas")
+	}
 }

@@ -1,0 +1,2 @@
+!!ERROR!!
+ASCII 报文解析失败：ASCII frame LRC check failed

@@ -1,0 +1,23 @@
+slave 1 confirmed: register 40002 is now 100 (0x0064)
+
+── Data details ──
+40002 = 100 (0x0064)
+
+── Byte-by-byte ──
+01     Slave address  device 1
+06     Function code  0x06 = Write Single Register
+00 01  Address        protocol address 1, PLC address 40002
+00 64  Write value    decimal 100, hexadecimal 0x0064
+D9 E1  CRC check      CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (8 bytes total)
+Slave address: 1
+Function: 0x06 (Write Single Register)
+Address: 1 (PLC 40002)
+Write value: 100 (0x0064)
+CRC16: 0xE1D9 (wire order D9 E1, passed)
+PDU: 06 00 01 00 64

@@ -5,6 +5,7 @@
 package socks5
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -73,48 +74,50 @@ func (e *ConnectError) Error() string { return e.Msg }
 // configured SOCKS5 proxy. The timeout covers DNS lookup, proxy connection,
 // authentication, and CONNECT.
 func ConnectTCP(targetHost string, targetPort uint16, proxy Config, timeout time.Duration) (net.Conn, error) {
-	if trimSpace(targetHost) == "" {
-		return nil, &ConnectError{Msg: "target host is required"}
-	}
-	if targetPort == 0 {
-		return nil, &ConnectError{Msg: "target port must be between 1 and 65535"}
-	}
-	if err := proxy.Validate(); err != nil {
-		return nil, &ConnectError{Msg: err.Error()}
-	}
-
-	type result struct {
-		conn net.Conn
-		err  error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		var conn net.Conn
-		var err error
-		if proxy.Enabled {
-			conn, err = connectViaProxy(targetHost, targetPort, proxy)
-		} else {
-			conn, err = net.Dial("tcp", net.JoinHostPort(targetHost, fmt.Sprint(targetPort)))
-			if err != nil {
-				err = &ConnectError{Msg: fmt.Sprintf("TCP connection failed: %v", err)}
-			}
-		}
-		ch <- result{conn, err}
-	}()
-
-	select {
-	case r := <-ch:
-		return r.conn, r.err
-	case <-time.After(timeout):
-		return nil, &ConnectError{Timeout: true, Msg: "connection timed out"}
-	}
+	return ConnectTCPContext(context.Background(), targetHost, targetPort, proxy, timeout)
 }
 
-func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Conn, error) {
-	conn, err := net.Dial("tcp", net.JoinHostPort(proxy.Host, fmt.Sprint(proxy.Port)))
-	if err != nil {
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy connection failed: %v", err)}
+// ConnectTCPContext covers dial, authentication and CONNECT with one deadline.
+func ConnectTCPContext(ctx context.Context, targetHost string, targetPort uint16, proxy Config, timeout time.Duration) (net.Conn, error) {
+	if trimSpace(targetHost) == "" || len(targetHost) > 255 || targetPort == 0 {
+		return nil, &ConnectError{Msg: "invalid target host or port"}
 	}
+	if err := proxy.Validate(); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	host, port := targetHost, targetPort
+	if proxy.Enabled {
+		host, port = proxy.Host, proxy.Port
+	}
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(host, fmt.Sprint(port)))
+	if err != nil {
+		return nil, &ConnectError{Timeout: ctx.Err() == context.DeadlineExceeded, Msg: fmt.Sprintf("TCP connection failed: %v", err)}
+	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	}
+	if proxy.Enabled {
+		err = connectViaProxy(conn, targetHost, targetPort, proxy)
+	}
+	if !stop() || ctx.Err() != nil {
+		conn.Close()
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	conn.SetDeadline(time.Time{})
+	return conn, nil
+}
+
+func connectViaProxy(conn net.Conn, targetHost string, targetPort uint16, proxy Config) error {
 
 	// Greeting: offer NoAuth (0x00) always, Username/Password (0x02) if set.
 	method := byte(0x00)
@@ -124,24 +127,24 @@ func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Co
 	greeting := []byte{0x05, 0x01, method}
 	if _, err := conn.Write(greeting); err != nil {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy greeting write failed: %v", err)}
+		return &ConnectError{Msg: fmt.Sprintf("proxy greeting write failed: %v", err)}
 	}
 	resp := make([]byte, 2)
 	if _, err := io.ReadFull(conn, resp); err != nil {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy greeting read failed: %v", err)}
+		return &ConnectError{Msg: fmt.Sprintf("proxy greeting read failed: %v", err)}
 	}
 	if resp[0] != 0x05 {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy protocol mismatch: version 0x%02X", resp[0])}
+		return &ConnectError{Msg: fmt.Sprintf("proxy protocol mismatch: version 0x%02X", resp[0])}
 	}
 	if resp[1] == 0xFF {
 		conn.Close()
-		return nil, &ConnectError{Msg: "proxy authentication methods unacceptable"}
+		return &ConnectError{Msg: "proxy authentication methods unacceptable"}
 	}
 	if resp[1] != method {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy chose unexpected auth method 0x%02X", resp[1])}
+		return &ConnectError{Msg: fmt.Sprintf("proxy chose unexpected auth method 0x%02X", resp[1])}
 	}
 
 	// Optional username/password subnegotiation (RFC 1929).
@@ -153,16 +156,16 @@ func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Co
 		auth = append(auth, proxy.Password...)
 		if _, err := conn.Write(auth); err != nil {
 			conn.Close()
-			return nil, &ConnectError{Msg: fmt.Sprintf("proxy auth write failed: %v", err)}
+			return &ConnectError{Msg: fmt.Sprintf("proxy auth write failed: %v", err)}
 		}
 		authResp := make([]byte, 2)
 		if _, err := io.ReadFull(conn, authResp); err != nil {
 			conn.Close()
-			return nil, &ConnectError{Msg: fmt.Sprintf("proxy auth read failed: %v", err)}
+			return &ConnectError{Msg: fmt.Sprintf("proxy auth read failed: %v", err)}
 		}
 		if authResp[1] != 0x00 {
 			conn.Close()
-			return nil, &ConnectError{Msg: "proxy authentication failed"}
+			return &ConnectError{Msg: "proxy authentication failed"}
 		}
 	}
 
@@ -186,7 +189,7 @@ func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Co
 
 	if _, err := conn.Write(req); err != nil {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT write failed: %v", err)}
+		return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT write failed: %v", err)}
 	}
 
 	// Reply: VER REP RSV ATYP BND.ADDR BND.PORT. Read header, then skip the
@@ -194,11 +197,11 @@ func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Co
 	head := make([]byte, 4)
 	if _, err := io.ReadFull(conn, head); err != nil {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
+		return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
 	}
 	if head[1] != 0x00 {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT rejected: 0x%02X", head[1])}
+		return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT rejected: 0x%02X", head[1])}
 	}
 	var skip int
 	switch head[3] {
@@ -210,16 +213,16 @@ func connectViaProxy(targetHost string, targetPort uint16, proxy Config) (net.Co
 		lenBuf := make([]byte, 1)
 		if _, err := io.ReadFull(conn, lenBuf); err != nil {
 			conn.Close()
-			return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
+			return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
 		}
 		skip = int(lenBuf[0]) + 2
 	default:
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT bad address type 0x%02X", head[3])}
+		return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT bad address type 0x%02X", head[3])}
 	}
 	if _, err := io.CopyN(io.Discard, conn, int64(skip)); err != nil {
 		conn.Close()
-		return nil, &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
+		return &ConnectError{Msg: fmt.Sprintf("proxy CONNECT read failed: %v", err)}
 	}
-	return conn, nil
+	return nil
 }

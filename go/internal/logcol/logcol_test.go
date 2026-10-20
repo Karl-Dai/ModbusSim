@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewEntry(t *testing.T) {
@@ -93,4 +94,115 @@ func TestCollectorConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestDefaultCapacityMatchesRust(t *testing.T) {
+	if DefaultCapacity != 10000 {
+		t.Errorf("DefaultCapacity = %d, want 10000", DefaultCapacity)
+	}
+}
+
+func TestAppendCallback(t *testing.T) {
+	c := NewCollectorWithCapacity(10)
+	var seen []string
+	c.SetAppendCallback(func(e Entry) { seen = append(seen, e.Detail) })
+
+	c.TryAdd(NewEntry(Rx, FCReadCoils, "first"))
+	c.TryAdd(NewEntry(Tx, FCWriteSingleRegister, "second"))
+
+	if strings.Join(seen, ",") != "first,second" {
+		t.Fatalf("callback saw %v", seen)
+	}
+}
+
+// The callback runs after the lock is released, so it may read the collector
+// back -- Rust drops the write guard before calling for the same reason.
+func TestAppendCallbackMayReadCollector(t *testing.T) {
+	c := NewCollectorWithCapacity(10)
+	done := make(chan int, 1)
+	c.SetAppendCallback(func(Entry) { done <- len(c.GetAll()) })
+
+	c.TryAdd(NewEntry(Rx, FCReadCoils, "a"))
+	select {
+	case n := <-done:
+		if n != 1 {
+			t.Errorf("len seen by callback = %d, want 1", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("callback deadlocked reading the collector")
+	}
+}
+
+func TestSetAppendCallbackNilDisables(t *testing.T) {
+	c := NewCollector()
+	calls := 0
+	c.SetAppendCallback(func(Entry) { calls++ })
+	c.TryAdd(NewEntry(Rx, FCReadCoils, "a"))
+	c.SetAppendCallback(nil)
+	c.TryAdd(NewEntry(Rx, FCReadCoils, "b"))
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
+	}
+}
+
+// Evicted entries must not fire the callback: only what is appended is seen.
+func TestAppendCallbackSeesEvictedRing(t *testing.T) {
+	c := NewCollectorWithCapacity(2)
+	var seen []string
+	c.SetAppendCallback(func(e Entry) { seen = append(seen, e.Detail) })
+	for _, d := range []string{"1", "2", "3"} {
+		c.TryAdd(NewEntry(Rx, FCReadCoils, d))
+	}
+	if strings.Join(seen, ",") != "1,2,3" {
+		t.Errorf("callback saw %v", seen)
+	}
+	if got := c.GetAll(); len(got) != 2 || got[0].Detail != "2" {
+		t.Errorf("ring = %v", got)
+	}
+}
+
+func TestGetRecent(t *testing.T) {
+	c := NewCollectorWithCapacity(10)
+	for i := 0; i < 5; i++ {
+		c.TryAdd(NewEntry(Rx, FCReadCoils, string(rune('a'+i))))
+	}
+	recent := c.GetRecent(2)
+	if len(recent) != 2 || recent[0].Detail != "d" || recent[1].Detail != "e" {
+		t.Fatalf("recent = %v", recent)
+	}
+	if len(c.GetRecent(100)) != 5 {
+		t.Error("n above length should clamp")
+	}
+	if len(c.GetRecent(0)) != 0 {
+		t.Error("n = 0 should return nothing")
+	}
+	if len(c.GetRecent(-1)) != 5 {
+		t.Error("negative n should return everything, like Rust's saturating_sub")
+	}
+}
+
+func TestCountWithinBoundary(t *testing.T) {
+	c := NewCollectorWithCapacity(10)
+	old := NewEntry(Rx, FCReadCoils, "old")
+	old.Timestamp = time.Now().UTC().Add(-10 * time.Second)
+	c.TryAdd(old)
+	for i := 0; i < 3; i++ {
+		c.TryAdd(NewEntry(Rx, FCReadCoils, "new"))
+	}
+	if got := c.CountWithin(time.Second); got != 3 {
+		t.Errorf("CountWithin = %d, want 3", got)
+	}
+	if got := c.CountWithin(time.Hour); got != 4 {
+		t.Errorf("CountWithin(1h) = %d, want 4", got)
+	}
+}
+
+func TestExportTextFormat(t *testing.T) {
+	c := NewCollector()
+	e := NewEntry(Tx, FCWriteSingleRegister, "W 10 = 42")
+	e.Timestamp = time.Date(2026, 3, 5, 7, 8, 9, 123000000, time.UTC)
+	c.TryAdd(e)
+	if got, want := c.ExportText(), "[2026-03-05 07:08:09.123] TX FC06 - W 10 = 42\n"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
 }

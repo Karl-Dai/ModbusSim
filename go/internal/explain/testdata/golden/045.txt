@@ -1,0 +1,21 @@
+The master asks slave 1 to "Read Holding Registers", but the data area is incomplete (should be 4 bytes, got 0)
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 02  Length                  2 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+03     Function code           0x03 = Read Holding Registers
+
+── Notes ──
+Could not determine the direction from the frame structure; parsed as a request — switch the direction manually if that is wrong
+The request data area for this function should be 4 bytes, got 0; the frame may be incomplete
+
+── Technical details ──
+Transport: Modbus TCP (8 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 2 (2 bytes actually follow)
+Unit ID: 1
+Function: 0x03 (Read Holding Registers)
+PDU: 03

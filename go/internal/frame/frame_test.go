@@ -77,3 +77,20 @@ func TestDecodeASCIIBadLRC(t *testing.T) {
 		t.Error("bad LRC: expected error")
 	}
 }
+
+// Rust names the offending nibble, so a bad low character must not be reported
+// as its valid high partner.
+func TestDecodeASCIIInvalidHexChar(t *testing.T) {
+	for _, tc := range []struct{ frame, want string }{
+		{":01Z30000000A0F\r\n", "invalid hex character: Z"},
+		{":010X0000000A0F\r\n", "invalid hex character: X"},
+	} {
+		_, err := DecodeASCII([]byte(tc.frame))
+		if err == nil {
+			t.Fatalf("%s: expected error", tc.frame)
+		}
+		if err.Error() != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.frame, err, tc.want)
+		}
+	}
+}

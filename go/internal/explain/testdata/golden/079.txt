@@ -1,0 +1,2 @@
+!!ERROR!!
+Could not auto-detect the frame format: as Modbus TCP, bytes 3-4 should be 00 00 with a matching length field; as Modbus RTU, the CRC check failed. Check for missing bytes or select the protocol manually.

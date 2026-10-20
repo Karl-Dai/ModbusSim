@@ -1,0 +1,18 @@
+"function 0x2B" from the master to slave 1: detailed parsing not supported yet; showing the basic structure only
+
+── Byte-by-byte ──
+01     Slave address  device 1
+2B     Function code  0x2B; detailed parsing not supported yet
+00 01  Data area      2 bytes; detailed parsing not supported for this function yet
+B0 10  CRC check      CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (6 bytes total)
+Slave address: 1
+Function: 0x2B
+Data: 00 01
+CRC16: 0x10B0 (wire order B0 10, passed)
+PDU: 2B 00 01

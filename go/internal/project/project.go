@@ -63,16 +63,16 @@ type Connection struct {
 	// omitted rather than written as zero values.
 	Transport Transport
 
-	Devices    []*Device    `json:",omitempty"`
-	ScanGroups []*ScanGroup `json:",omitempty"`
+	Devices    []*Device    `json:"Devices,omitempty"`
+	ScanGroups []*ScanGroup `json:"ScanGroups,omitempty"`
 
-	DefaultSlaveID uint8 `json:",omitempty"`
+	DefaultSlaveID uint8 `json:"DefaultSlaveID,omitempty"`
 	TimeoutMS      uint64
 	Requests       RequestSettings
 	Reconnect      ReconnectPolicy
 	// Socks5 is nil when no proxy is configured; an enabled proxy always has
 	// a host and port, so there is no separate Enabled flag.
-	Socks5 *Socks5Config `json:",omitempty"`
+	Socks5 *Socks5Config `json:"Socks5,omitempty"`
 }
 
 // DefaultConnection mirrors ConnectionConfig's serde defaults in project.rs.
@@ -114,15 +114,15 @@ func (t TransportType) IsTCP() bool {
 type Transport struct {
 	Type TransportType
 
-	Host string `json:",omitempty"`
-	Port uint16 `json:",omitempty"`
+	Host string `json:"Host,omitempty"`
+	Port uint16 `json:"Port,omitempty"`
 
-	Serial *SerialConfig `json:",omitempty"`
+	Serial *SerialConfig `json:"Serial,omitempty"`
 
 	// TLS is the master-side client identity; ServerTLS is the slave-side
 	// listener identity. Only tcp_tls reads either.
-	TLS       *ClientTLS `json:",omitempty"`
-	ServerTLS *ServerTLS `json:",omitempty"`
+	TLS       *ClientTLS `json:"TLS,omitempty"`
+	ServerTLS *ServerTLS `json:"ServerTLS,omitempty"`
 }
 
 // SerialConfig is a serial port setting shared by RTU and ASCII.
@@ -151,48 +151,48 @@ func DefaultSerialConfig() *SerialConfig {
 // ClientTLS mirrors transport.rs's TlsConfig (master connects as a client).
 type ClientTLS struct {
 	Enabled            bool
-	CAFile             string `json:",omitempty"`
-	CertFile           string `json:",omitempty"`
-	KeyFile            string `json:",omitempty"`
-	PKCS12File         string `json:",omitempty"`
-	PKCS12Password     string `json:",omitempty"`
-	AcceptInvalidCerts bool   `json:",omitempty"`
+	CAFile             string `json:"CAFile,omitempty"`
+	CertFile           string `json:"CertFile,omitempty"`
+	KeyFile            string `json:"KeyFile,omitempty"`
+	PKCS12File         string `json:"PKCS12File,omitempty"`
+	PKCS12Password     string `json:"PKCS12Password,omitempty"`
+	AcceptInvalidCerts bool   `json:"AcceptInvalidCerts,omitempty"`
 }
 
 // ServerTLS mirrors transport.rs's SlaveTlsConfig (slave listens as a server).
 type ServerTLS struct {
 	Enabled           bool
-	CertFile          string `json:",omitempty"`
-	KeyFile           string `json:",omitempty"`
-	CAFile            string `json:",omitempty"`
-	RequireClientCert bool   `json:",omitempty"`
-	PKCS12File        string `json:",omitempty"`
-	PKCS12Password    string `json:",omitempty"`
+	CertFile          string `json:"CertFile,omitempty"`
+	KeyFile           string `json:"KeyFile,omitempty"`
+	CAFile            string `json:"CAFile,omitempty"`
+	RequireClientCert bool   `json:"RequireClientCert,omitempty"`
+	PKCS12File        string `json:"PKCS12File,omitempty"`
+	PKCS12Password    string `json:"PKCS12Password,omitempty"`
 }
 
 // Socks5Config mirrors socks5.rs's Socks5Config minus its Enabled flag.
 type Socks5Config struct {
 	Host     string
 	Port     uint16
-	Username string `json:",omitempty"`
-	Password string `json:",omitempty"`
+	Username string `json:"Username,omitempty"`
+	Password string `json:"Password,omitempty"`
 }
 
 // Device is one simulated slave stored in a slave project.
 type Device struct {
 	SlaveID uint8
-	Name    string   `json:",omitempty"`
-	Points  []*Point `json:",omitempty"`
+	Name    string   `json:"Name,omitempty"`
+	Points  []*Point `json:"Points,omitempty"`
 	Values  Values
 }
 
 // Values holds raw register contents. v2 uses maps keyed by address, which Go
 // encodes as JSON objects; v1 stored [[address, value]] tuples.
 type Values struct {
-	Coils            map[uint16]bool   `json:",omitempty"`
-	DiscreteInputs   map[uint16]bool   `json:",omitempty"`
-	HoldingRegisters map[uint16]uint16 `json:",omitempty"`
-	InputRegisters   map[uint16]uint16 `json:",omitempty"`
+	Coils            map[uint16]bool   `json:"Coils,omitempty"`
+	DiscreteInputs   map[uint16]bool   `json:"DiscreteInputs,omitempty"`
+	HoldingRegisters map[uint16]uint16 `json:"HoldingRegisters,omitempty"`
+	InputRegisters   map[uint16]uint16 `json:"InputRegisters,omitempty"`
 }
 
 // Point is one defined register, its interpretation, and its optional
@@ -202,19 +202,19 @@ type Point struct {
 	Address      uint16
 	RegisterType register.RegisterType
 	DataType     register.DataType
-	Endian       register.Endian `json:",omitempty"`
-	Name         string          `json:",omitempty"`
-	Comment      string          `json:",omitempty"`
+	Endian       register.Endian `json:"Endian,omitempty"`
+	Name         string          `json:"Name,omitempty"`
+	Comment      string          `json:"Comment,omitempty"`
 
-	Mutation   *MutationConfig   `json:",omitempty"`
-	DataSource *DataSourceConfig `json:",omitempty"`
+	Mutation   *MutationConfig   `json:"Mutation,omitempty"`
+	DataSource *DataSourceConfig `json:"DataSource,omitempty"`
 }
 
 // MutationConfig mirrors mutation.Config with v2 key names.
 type MutationConfig struct {
 	Enabled  bool
 	Mode     mutation.Mode
-	PeriodMS uint64 `json:",omitempty"`
+	PeriodMS uint64 `json:"PeriodMS,omitempty"`
 	Step     float64
 	Min      float64
 	Max      float64
@@ -228,7 +228,7 @@ func DefaultMutationConfig() *MutationConfig {
 // DataSourceConfig mirrors datasource.Config with v2 key names.
 type DataSourceConfig struct {
 	Source           DataSource
-	UpdateIntervalMS uint64 `json:",omitempty"`
+	UpdateIntervalMS uint64 `json:"UpdateIntervalMS,omitempty"`
 }
 
 // DataSource mirrors datasource.Source. The union stays flat because the
@@ -236,29 +236,29 @@ type DataSourceConfig struct {
 type DataSource struct {
 	Type datasource.SourceKind
 
-	Value uint16 `json:",omitempty"`
+	Value uint16 `json:"Value,omitempty"`
 
-	Min uint16 `json:",omitempty"`
-	Max uint16 `json:",omitempty"`
+	Min uint16 `json:"Min,omitempty"`
+	Max uint16 `json:"Max,omitempty"`
 
-	Amplitude float64 `json:",omitempty"`
-	Frequency float64 `json:",omitempty"`
-	Offset    float64 `json:",omitempty"`
-	Phase     float64 `json:",omitempty"`
+	Amplitude float64 `json:"Amplitude,omitempty"`
+	Frequency float64 `json:"Frequency,omitempty"`
+	Offset    float64 `json:"Offset,omitempty"`
+	Phase     float64 `json:"Phase,omitempty"`
 
-	PeriodMS uint64 `json:",omitempty"`
+	PeriodMS uint64 `json:"PeriodMS,omitempty"`
 
-	Start uint16 `json:",omitempty"`
-	Step  int16  `json:",omitempty"`
-	Wrap  bool   `json:",omitempty"`
+	Start uint16 `json:"Start,omitempty"`
+	Step  int16  `json:"Step,omitempty"`
+	Wrap  bool   `json:"Wrap,omitempty"`
 
-	Values       []uint16 `json:",omitempty"`
-	LoopPlayback bool     `json:",omitempty"`
+	Values       []uint16 `json:"Values,omitempty"`
+	LoopPlayback bool     `json:"LoopPlayback,omitempty"`
 }
 
 // ScanGroup is a periodic read performed by a master project.
 type ScanGroup struct {
-	ID           string `json:",omitempty"`
+	ID           string `json:"ID,omitempty"`
 	Name         string
 	SlaveID      uint8
 	FunctionCode uint8
@@ -287,7 +287,7 @@ type ReconnectPolicy struct {
 	InitialDelayMS uint64
 	MaxDelayMS     uint64
 	BackoffFactor  float64
-	MaxAttempts    *uint32 `json:",omitempty"`
+	MaxAttempts    *uint32 `json:"MaxAttempts,omitempty"`
 }
 
 // DefaultReconnectPolicy mirrors ReconnectPolicy::default().

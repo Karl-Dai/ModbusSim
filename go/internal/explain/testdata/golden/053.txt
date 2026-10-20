@@ -1,0 +1,22 @@
+slave 1 rejected the "Read Holding Registers" request: Illegal data address — the register being accessed does not exist on the slave
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 04  Length                  4 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+83     Function code           0x83 = 0x03 + 0x80, meaning "Read Holding Registers" raised an exception
+02     Exception code          0x02 = Illegal data address — the register being accessed does not exist on the slave
+
+── Notes ──
+An exception response usually carries exactly 1 exception-code byte; 1 extra byte(s) follow
+
+── Technical details ──
+Transport: Modbus TCP (10 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 4 (4 bytes actually follow)
+Unit ID: 1
+Function: 0x83 (0x03 | 0x80, exception response)
+Exception code: 0x02 (Illegal data address)
+PDU: 83 02 00

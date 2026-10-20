@@ -1,0 +1,23 @@
+The master asks slave 1 to "Read Holding Registers", but the data area is incomplete (should be 4 bytes, got 3)
+
+── Byte-by-byte ──
+00 01     Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00     Protocol identifier     0x0000 = standard Modbus protocol
+00 06     Length                  6 more bytes follow (unit identifier + data), but 5 actually follow
+01        Unit identifier         slave address: device 1
+03        Function code           0x03 = Read Holding Registers
+00 00 00  Data area               incomplete data; cannot parse the start address and quantity
+
+── Notes ──
+The length field says 6, but only 5 bytes follow; the frame may be truncated or the length is wrong
+Could not determine the direction from the frame structure; parsed as a request — switch the direction manually if that is wrong
+The request data area for this function should be 4 bytes, got 3; the frame may be incomplete
+
+── Technical details ──
+Transport: Modbus TCP (11 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 6 (5 bytes actually follow)
+Unit ID: 1
+Function: 0x03 (Read Holding Registers)
+PDU: 03 00 00 00

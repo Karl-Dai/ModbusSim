@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ModbusMaster",
+  "outputfilename": "ModbusMaster",
+  "frontend:dir": "../../../master-frontend",
+  "frontend:install": "npm ci --prefix ..",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev -- --host 127.0.0.1",
+  "frontend:dev:serverUrl": "auto",
+  "assetdir": "assets/dist",
+  "wailsjsdir": "../../../master-frontend",
+  "bindings": {
+    "ts_generation": {
+      "outputType": "interfaces"
+    }
+  },
+  "info": {
+    "productName": "ModbusMaster",
+    "productVersion": "0.17.4",
+    "comments": "Go/Wails development version"
+  }
+}

@@ -112,8 +112,13 @@ func (e Entry) CSVRow() string {
 // CSVHeader is the CSV header row.
 const CSVHeader = "Timestamp,Direction,Function,Detail,RawBytes"
 
-// DefaultCapacity mirrors Rust's LogCollector default capacity.
-const DefaultCapacity = 1000
+// DefaultCapacity mirrors Rust's MAX_LOG_ENTRIES.
+const DefaultCapacity = 10000
+
+// AppendCallback runs once per appended entry, e.g. to emit a GUI event. It is
+// called after the collector's lock is released, so it may read from the
+// collector; keep it fast and non-blocking all the same.
+type AppendCallback func(entry Entry)
 
 // Collector is a bounded, thread-safe ring of recent log entries.
 type Collector struct {
@@ -121,6 +126,7 @@ type Collector struct {
 	entries  []Entry
 	capacity int
 	dropped  uint64
+	onAppend AppendCallback
 }
 
 // NewCollector creates a collector with the default capacity.
@@ -136,15 +142,29 @@ func NewCollectorWithCapacity(capacity int) *Collector {
 	return &Collector{capacity: capacity}
 }
 
-// TryAdd appends an entry, evicting the oldest when full. Never blocks.
+// SetAppendCallback installs (or with nil removes) the on-append callback.
+// Safe to call at any time, mirroring LogCollector::set_append_callback.
+func (c *Collector) SetAppendCallback(cb AppendCallback) {
+	c.mu.Lock()
+	c.onAppend = cb
+	c.mu.Unlock()
+}
+
+// TryAdd appends an entry, evicting the oldest when full, and notifies the
+// append callback outside the lock.
 func (c *Collector) TryAdd(entry Entry) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if len(c.entries) >= c.capacity {
 		c.entries = c.entries[1:]
 		c.dropped++
 	}
 	c.entries = append(c.entries, entry)
+	cb := c.onAppend
+	c.mu.Unlock()
+
+	if cb != nil {
+		cb(entry)
+	}
 }
 
 // GetAll returns a snapshot of all buffered entries (oldest first).
@@ -156,16 +176,31 @@ func (c *Collector) GetAll() []Entry {
 	return out
 }
 
-// CountWithin counts entries newer than the window.
+// GetRecent returns up to the n newest entries, oldest first.
+func (c *Collector) GetRecent(n int) []Entry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if n < 0 || n > len(c.entries) {
+		n = len(c.entries)
+	}
+	out := make([]Entry, n)
+	copy(out, c.entries[len(c.entries)-n:])
+	return out
+}
+
+// CountWithin counts entries newer than the window. Entries are appended in
+// time order, so the scan starts at the newest end (Rust's take_while) and
+// stops at the first stale entry.
 func (c *Collector) CountWithin(window time.Duration) int {
 	cutoff := time.Now().UTC().Add(-window)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := 0
-	for _, e := range c.entries {
-		if e.Timestamp.After(cutoff) {
-			n++
+	for i := len(c.entries) - 1; i >= 0; i-- {
+		if c.entries[i].Timestamp.Before(cutoff) {
+			break
 		}
+		n++
 	}
 	return n
 }
@@ -191,14 +226,15 @@ func (c *Collector) ExportCSV() string {
 	return b.String()
 }
 
-// ExportText renders the entries in the human-readable log format.
+// ExportText renders the entries in the human-readable log format, matching
+// Rust's "[timestamp] DIR FC - detail" lines.
 func (c *Collector) ExportText() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var b strings.Builder
 	for _, e := range c.entries {
 		ts := e.Timestamp.Format("2006-01-02 15:04:05.000")
-		fmt.Fprintf(&b, "%s %s %s %s\n", ts, e.Direction, e.FunctionCode.Name(), e.Detail)
+		fmt.Fprintf(&b, "[%s] %s %s - %s\n", ts, e.Direction, e.FunctionCode.Name(), e.Detail)
 	}
 	return b.String()
 }

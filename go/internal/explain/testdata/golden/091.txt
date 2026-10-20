@@ -1,0 +1,39 @@
+slave 1 replied to "Read Coils": 16 bit states, 2 ON / 14 OFF (details below)
+
+── Data details ──
+00001 = ON
+00002 = OFF
+00003 = ON
+00004 = OFF
+00005 = OFF
+00006 = OFF
+00007 = OFF
+00008 = OFF
+00009 = OFF
+00010 = OFF
+00011 = OFF
+00012 = OFF
+00013 = OFF
+00014 = OFF
+00015 = OFF
+00016 = OFF
+Note: the response frame carries no start address or quantity; numbering starts at 00001 by default and the last byte may contain padding bits — refer to the matching request
+
+── Byte-by-byte ──
+01     Slave address  device 1
+01     Function code  0x01 = Read Coils
+02     Byte count     2 data bytes
+05 00  Data           each bit is the state of one coil (LSB first within each byte)
+BA AC  CRC check      CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (7 bytes total)
+Slave address: 1
+Function: 0x01 (Read Coils)
+Byte count: 2
+Data: 05 00
+CRC16: 0xACBA (wire order BA AC, passed)
+PDU: 01 02 05 00
