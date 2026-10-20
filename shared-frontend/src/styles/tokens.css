@@ -1,6 +1,6 @@
-/* Catppuccin palettes + semantic aliases.
+/* Theme palettes + semantic aliases.
    Imported once from main.ts so every component can use var(--…).
-   Mocha (dark) is the default; [data-theme='light'] switches to Latte. */
+   Mocha (dark) is the default; light uses neutral white and gray surfaces. */
 
 :root, :root[data-theme='dark'] {
   /* Base layers (dark → light) */
@@ -29,33 +29,56 @@
 
   --c-row-danger-bg: #3d2a30;
 
+  /* Roles whose foreground/background relationship changes with the theme. */
+  --c-on-accent: var(--c-base);
+  --c-accent-hover: var(--c-sapphire);
+  --c-control-bg: var(--c-surface0);
+  --c-hover-bg: var(--c-base);
+  --c-selection-bg: var(--c-blue);
+  --c-selection-text: var(--c-base);
+  --c-row-border: var(--c-base);
+  --c-success-bg: var(--c-green);
+  --c-success-text: var(--c-base);
+  --c-neutral-bg: var(--c-surface1);
+  --c-neutral-text: var(--c-subtext1);
+
   /* Mono stack with broader fallback chain than the original SF Mono / Fira Code. */
   --font-mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
 }
 
 :root[data-theme='light'] {
-  /* Catppuccin Latte */
-  --c-crust:    #dce0e8;
-  --c-mantle:   #e6e9ef;
-  --c-base:     #eff1f5;
-  --c-surface0: #ccd0da;
-  --c-surface1: #bcc0cc;
-  --c-surface2: #acb0be;
-  --c-overlay0: #9ca0b0;
-  --c-subtext0: #6c6f85;
-  --c-subtext1: #5c5f77;
-  --c-text:     #4c4f69;
+  --c-crust:    #ffffff;
+  --c-mantle:   #f5f7fa;
+  --c-base:     #ffffff;
+  --c-surface0: #e2e7ee;
+  --c-surface1: #c7d0db;
+  --c-surface2: #aebbc9;
+  --c-overlay0: #66758a;
+  --c-subtext0: #526176;
+  --c-subtext1: #3f4e63;
+  --c-text:     #202c3c;
 
-  --c-blue:     #1e66f5;
-  --c-lavender: #7287fd;
-  --c-sapphire: #209fb5;
-  --c-sky:      #04a5e5;
-  --c-teal:     #179299;
-  --c-green:    #40a02b;
-  --c-yellow:   #df8e1d;
-  --c-peach:    #fe640b;
-  --c-red:      #d20f39;
-  --c-mauve:    #8839ef;
+  --c-blue:     #245dcc;
+  --c-lavender: #5753bb;
+  --c-sapphire: #176b86;
+  --c-sky:      #126e99;
+  --c-teal:     #16746d;
+  --c-green:    #217345;
+  --c-yellow:   #8a6400;
+  --c-peach:    #a94d12;
+  --c-red:      #b42340;
+  --c-mauve:    #793ac1;
 
-  --c-row-danger-bg: #ecd6de;
+  --c-row-danger-bg: #fff0f2;
+  --c-on-accent: #ffffff;
+  --c-accent-hover: #1c4ca8;
+  --c-control-bg: #ffffff;
+  --c-hover-bg: #edf2f8;
+  --c-selection-bg: #e5efff;
+  --c-selection-text: #193e80;
+  --c-row-border: #e9edf2;
+  --c-success-bg: #e4f3e9;
+  --c-success-text: #21663e;
+  --c-neutral-bg: #edf0f4;
+  --c-neutral-text: #546174;
 }

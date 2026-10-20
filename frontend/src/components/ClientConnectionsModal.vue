@@ -23,9 +23,9 @@ onBeforeUnmount(() => dialog.value?.close())
           <div v-else class="table-scroll">
             <table>
               <thead><tr><th>{{ t('clients.peer') }}</th><th>{{ t('clients.since') }}</th><th>{{ t('clients.state') }}</th></tr></thead>
-              <tbody><tr v-for="client in clients" :key="client.id">
-                <td class="peer">{{ client.peer_address }}</td>
-                <td>{{ new Date(client.connected_at).toLocaleString() }}</td>
+              <tbody><tr v-for="client in clients" :key="client.ID">
+                <td class="peer">{{ client.PeerAddress }}</td>
+                <td>{{ new Date(client.ConnectedAt).toLocaleString() }}</td>
                 <td class="connected">{{ t('clients.connected') }}</td>
               </tr></tbody>
             </table>

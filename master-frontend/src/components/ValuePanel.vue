@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, computed, ref, watch, nextTick, type Ref, type Directive } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import type { RegisterValueDto, ScanGroupInfo } from '../types'
 import { swapBytes16, float32ToU16Pair, use16BitFormat, use32BitFormat, use64BitFormat, useI18n, formatAddress, showAlert, type ByteOrder } from 'shared-frontend'
 
@@ -21,17 +21,17 @@ const addrMode = inject<Ref<'hex' | 'dec'>>('addrMode', ref('hex') as Ref<'hex' 
 const hasSelection = computed(() => selectedRegisters.value.length > 0)
 
 const sortedRegs = computed(() => {
-  return [...selectedRegisters.value].sort((a, b) => a.address - b.address)
+  return [...selectedRegisters.value].sort((a, b) => a.Address - b.Address)
 })
 
 const firstReg = computed(() => sortedRegs.value[0] ?? null)
-const isBoolType = computed(() => firstReg.value?.is_bool ?? false)
+const isBoolType = computed(() => firstReg.value?.IsBool ?? false)
 const selCount = computed(() => sortedRegs.value.length)
 
 const allSameType = computed(() => {
   if (sortedRegs.value.length <= 1) return true
-  const t = sortedRegs.value[0].is_bool
-  return sortedRegs.value.every(r => r.is_bool === t)
+  const t = sortedRegs.value[0].IsBool
+  return sortedRegs.value.every(r => r.IsBool === t)
 })
 
 // Editing state
@@ -45,7 +45,7 @@ function fmtAddress(addr: number): string {
 
 const panelTitle = computed(() => {
   if (!firstReg.value) return ''
-  const fn = selectedScanGroup.value?.function || ''
+  const fn = selectedScanGroup.value?.Function || ''
   const prefixMap: Record<string, string> = {
     read_coils: '0x Coil',
     read_discrete_inputs: '1x Discrete Input',
@@ -54,21 +54,21 @@ const panelTitle = computed(() => {
   }
   const prefix = prefixMap[fn] || fn
   if (selCount.value === 1) {
-    return `${prefix} @ ${fmtAddress(firstReg.value.address)}`
+    return `${prefix} @ ${fmtAddress(firstReg.value.Address)}`
   }
   const last = sortedRegs.value[sortedRegs.value.length - 1]
-  return `${prefix} @ ${fmtAddress(firstReg.value.address)}~${fmtAddress(last.address)}`
+  return `${prefix} @ ${fmtAddress(firstReg.value.Address)}~${fmtAddress(last.Address)}`
 })
 
 // 16-bit interpretations (shared composable)
-const rawValue = computed(() => firstReg.value ? Number(firstReg.value.raw_value) & 0xFFFF : 0)
+const rawValue = computed(() => firstReg.value ? Number(firstReg.value.RawValue) & 0xFFFF : 0)
 const { signed16, unsigned16, hex16, binary16 } = use16BitFormat(rawValue)
 
 // 32-bit
 const show32bit = computed(() => selCount.value >= 2 && allSameType.value && !isBoolType.value)
 
-const reg32Hi = computed(() => show32bit.value ? Number(sortedRegs.value[0].raw_value) & 0xFFFF : 0)
-const reg32Lo = computed(() => show32bit.value ? Number(sortedRegs.value[1].raw_value) & 0xFFFF : 0)
+const reg32Hi = computed(() => show32bit.value ? Number(sortedRegs.value[0].RawValue) & 0xFFFF : 0)
+const reg32Lo = computed(() => show32bit.value ? Number(sortedRegs.value[1].RawValue) & 0xFFFF : 0)
 const { longABCD, longCDAB, longBADC, longDCBA, floatABCD, floatCDAB, floatBADC, floatDCBA } =
   use32BitFormat(reg32Hi, reg32Lo, show32bit)
 
@@ -77,7 +77,7 @@ const show64bit = computed(() => selCount.value >= 4 && allSameType.value && !is
 
 const reg64Values = computed(() => {
   if (!show64bit.value) return [0, 0, 0, 0]
-  return sortedRegs.value.slice(0, 4).map(r => Number(r.raw_value) & 0xFFFF)
+  return sortedRegs.value.slice(0, 4).map(r => Number(r.RawValue) & 0xFFFF)
 })
 const { doubleValue, doubleReversed, doubleByteSwap, doubleLittleEndian } =
   use64BitFormat(reg64Values, show64bit)
@@ -99,24 +99,24 @@ function cancelEdit() {
 }
 
 // Only cancel edit when selected register addresses change, not on poll value updates
-watch(() => selectedRegisters.value.map(r => r.address).join(','), () => cancelEdit())
+watch(() => selectedRegisters.value.map(r => r.Address).join(','), () => cancelEdit())
 
-function reverseParseField(field: string, input: string): { address: number; value: number }[] | null {
+function reverseParseField(field: string, input: string): { Address: number; value: number }[] | null {
   const regs = sortedRegs.value
   if (regs.length === 0) return null
 
   if (field === 'signed16') {
     const n = Number(input); if (isNaN(n)) return null
     const v = n < 0 ? (n + 0x10000) & 0xFFFF : n & 0xFFFF
-    return [{ address: regs[0].address, value: v }]
+    return [{ Address: regs[0].Address, value: v }]
   }
   if (field === 'unsigned16') {
     const n = Number(input); if (isNaN(n)) return null
-    return [{ address: regs[0].address, value: n & 0xFFFF }]
+    return [{ Address: regs[0].Address, value: n & 0xFFFF }]
   }
   if (field === 'hex16') {
     const hex = input.replace(/^0x/i, ''); const n = parseInt(hex, 16); if (isNaN(n)) return null
-    return [{ address: regs[0].address, value: n & 0xFFFF }]
+    return [{ Address: regs[0].Address, value: n & 0xFFFF }]
   }
 
   // 32-bit Long
@@ -125,7 +125,7 @@ function reverseParseField(field: string, input: string): { address: number; val
     const u = n >>> 0; const hi = (u >>> 16) & 0xFFFF; const lo = u & 0xFFFF
     const map: Record<string, [number, number]> = { longABCD: [hi, lo], longCDAB: [lo, hi], longBADC: [swapBytes16(hi), swapBytes16(lo)], longDCBA: [swapBytes16(lo), swapBytes16(hi)] }
     const [r0, r1] = map[field]
-    return [{ address: regs[0].address, value: r0 }, { address: regs[1].address, value: r1 }]
+    return [{ Address: regs[0].Address, value: r0 }, { Address: regs[1].Address, value: r1 }]
   }
 
   // 32-bit Float
@@ -133,7 +133,7 @@ function reverseParseField(field: string, input: string): { address: number; val
     if (regs.length < 2) return null; const n = parseFloat(input); if (isNaN(n)) return null
     const order = field.replace('float', '') as ByteOrder
     const [r0, r1] = float32ToU16Pair(n, order)
-    return [{ address: regs[0].address, value: r0 }, { address: regs[1].address, value: r1 }]
+    return [{ Address: regs[0].Address, value: r0 }, { Address: regs[1].Address, value: r1 }]
   }
 
   // 64-bit Double
@@ -147,40 +147,28 @@ function reverseParseField(field: string, input: string): { address: number; val
     else if (field === 'doubleReversed') vals = [w[3], w[2], w[1], w[0]]
     else if (field === 'doubleByteSwap') vals = [swapBytes16(w[0]), swapBytes16(w[1]), swapBytes16(w[2]), swapBytes16(w[3])]
     else vals = [swapBytes16(w[3]), swapBytes16(w[2]), swapBytes16(w[1]), swapBytes16(w[0])]
-    return vals.map((v, i) => ({ address: regs[i].address, value: v }))
+    return vals.map((v, i) => ({ Address: regs[i].Address, value: v }))
   }
 
   return null
 }
 
-async function writeRegisters(writes: { address: number; value: number }[]) {
+async function writeRegisters(writes: { Address: number; value: number }[]) {
   if (!selectedConnectionId.value) return
   const category = writeCategory.value
   if (!category) return
   try {
     if (category === 'register') {
       if (writes.length === 1) {
-        await invoke('write_single_register', {
-          connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, value: writes[0].value }
-        })
+        await App.WriteSingleRegister(selectedConnectionId.value, writes[0].Address, writes[0].value)
       } else {
-        await invoke('write_multiple_registers', {
-          connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, values: writes.map(w => w.value) }
-        })
+        await App.WriteMultipleRegisters(selectedConnectionId.value, writes[0].Address, writes.map(w => w.value))
       }
     } else if (category === 'coil') {
       if (writes.length === 1) {
-        await invoke('write_single_coil', {
-          connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, value: writes[0].value !== 0 }
-        })
+        await App.WriteSingleCoil(selectedConnectionId.value, writes[0].Address, writes[0].value !== 0)
       } else {
-        await invoke('write_multiple_coils', {
-          connectionId: selectedConnectionId.value,
-          request: { address: writes[0].address, values: writes.map(w => w.value !== 0) }
-        })
+        await App.WriteMultipleCoils(selectedConnectionId.value, writes[0].Address, writes.map(w => w.value !== 0))
       }
     }
   } catch (e) {
@@ -205,7 +193,7 @@ async function commitEdit() {
 }
 
 async function toggleBool(reg: RegisterValueDto) {
-  await writeRegisters([{ address: reg.address, value: reg.raw_value !== 0 ? 0 : 1 }])
+  await writeRegisters([{ Address: reg.Address, value: reg.RawValue !== 0 ? 0 : 1 }])
 }
 
 async function handleEditKeydown(e: KeyboardEvent) {
@@ -214,13 +202,13 @@ async function handleEditKeydown(e: KeyboardEvent) {
 }
 
 const isWritable = computed(() => {
-  const fn = selectedScanGroup.value?.function || ''
+  const fn = selectedScanGroup.value?.Function || ''
   return fn === 'read_holding_registers' || fn === 'read_coils'
       || fn === 'read_input_registers' || fn === 'read_discrete_inputs'
 })
 
 const writeCategory = computed<'register' | 'coil' | null>(() => {
-  const fn = selectedScanGroup.value?.function || ''
+  const fn = selectedScanGroup.value?.Function || ''
   if (fn === 'read_holding_registers' || fn === 'read_input_registers') return 'register'
   if (fn === 'read_coils' || fn === 'read_discrete_inputs') return 'coil'
   return null
@@ -237,16 +225,16 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
 
     <template v-else>
       <div class="panel-title">{{ panelTitle }}</div>
-      <div v-if="selectedScanGroup?.function === 'read_input_registers'" class="panel-hint">{{ t('valuePanel.writeHintInputReg') }}</div>
-      <div v-else-if="selectedScanGroup?.function === 'read_discrete_inputs'" class="panel-hint">{{ t('valuePanel.writeHintDiscrete') }}</div>
+      <div v-if="selectedScanGroup?.Function === 'read_input_registers'" class="panel-hint">{{ t('valuePanel.writeHintInputReg') }}</div>
+      <div v-else-if="selectedScanGroup?.Function === 'read_discrete_inputs'" class="panel-hint">{{ t('valuePanel.writeHintDiscrete') }}</div>
 
       <!-- Bool type -->
       <template v-if="isBoolType">
         <div class="value-section">
-          <div v-for="reg in sortedRegs" :key="reg.address" class="value-row">
-            <span class="value-label">{{ fmtAddress(reg.address) }}</span>
+          <div v-for="reg in sortedRegs" :key="reg.Address" class="value-row">
+            <span class="value-label">{{ fmtAddress(reg.Address) }}</span>
             <span :class="['value-data', { editable: isWritable }]" @click="isWritable && toggleBool(reg)">
-              {{ reg.raw_value !== 0 ? 'true (1)' : 'false (0)' }}
+              {{ reg.RawValue !== 0 ? 'true (1)' : 'false (0)' }}
             </span>
           </div>
         </div>
@@ -278,7 +266,7 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
         </div>
 
         <div v-if="show32bit" class="value-section">
-          <div class="section-title">32-bit ({{ sortedRegs.slice(0, 2).map(r => fmtAddress(r.address)).join(' + ') }})</div>
+          <div class="section-title">32-bit ({{ sortedRegs.slice(0, 2).map(r => fmtAddress(r.Address)).join(' + ') }})</div>
           <div class="value-row"><span class="value-label">Long AB CD</span>
             <input v-if="editingField === 'longABCD'" v-focus v-model="editValue" class="panel-edit-input" @blur="onBlur" @keydown="handleEditKeydown" />
             <span v-else :class="['value-data', 'mono', { editable: isWritable }]" @click="startEdit('longABCD', longABCD)">{{ longABCD }}</span></div>
@@ -306,7 +294,7 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
         </div>
 
         <div v-if="show64bit" class="value-section">
-          <div class="section-title">64-bit ({{ sortedRegs.slice(0, 4).map(r => fmtAddress(r.address)).join(' + ') }})</div>
+          <div class="section-title">64-bit ({{ sortedRegs.slice(0, 4).map(r => fmtAddress(r.Address)).join(' + ') }})</div>
           <div class="value-row"><span class="value-label">Double AB CD EF GH</span>
             <input v-if="editingField === 'double'" v-focus v-model="editValue" class="panel-edit-input" @blur="onBlur" @keydown="handleEditKeydown" />
             <span v-else :class="['value-data', 'mono', { editable: isWritable }]" @click="startEdit('double', doubleValue)">{{ doubleValue }}</span></div>
@@ -327,17 +315,17 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
 
 <style scoped>
 .value-panel { padding: 0; font-size: 13px; }
-.panel-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: #6c7086; letter-spacing: 0.5px; }
-.empty-state { padding: 24px 12px; color: #6c7086; text-align: center; font-size: 12px; }
-.panel-title { padding: 6px 12px; font-size: 12px; font-weight: 600; color: #89b4fa; border-bottom: 1px solid #313244; margin-bottom: 4px; }
-.panel-hint { padding: 6px 12px; font-size: 11px; color: #fab387; }
-.value-section { padding: 4px 0; border-bottom: 1px solid #313244; }
-.section-title { padding: 4px 12px; font-size: 11px; color: #6c7086; text-transform: uppercase; }
+.panel-header { padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: var(--c-subtext0); letter-spacing: 0.5px; }
+.empty-state { padding: 24px 12px; color: var(--c-subtext0); text-align: center; font-size: 12px; }
+.panel-title { padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--c-blue); border-bottom: 1px solid var(--c-surface0); margin-bottom: 4px; }
+.panel-hint { padding: 6px 12px; font-size: 11px; color: var(--c-peach); }
+.value-section { padding: 4px 0; border-bottom: 1px solid var(--c-surface0); }
+.section-title { padding: 4px 12px; font-size: 11px; color: var(--c-subtext0); text-transform: uppercase; }
 .value-row { display: flex; justify-content: space-between; padding: 3px 12px; }
-.value-label { color: #6c7086; font-size: 12px; }
-.value-data { color: #cdd6f4; font-size: 12px; text-align: right; }
-.value-data.mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+.value-label { color: var(--c-subtext0); font-size: 12px; }
+.value-data { color: var(--c-text); font-size: 12px; text-align: right; }
+.value-data.mono { font-family: var(--font-mono); }
 .value-data.editable { cursor: pointer; border-radius: 3px; padding: 0 4px; user-select: none; }
-.value-data.editable:hover { background: #313244; }
-.panel-edit-input { width: 120px; padding: 1px 6px; background: #1e1e2e; border: 1px solid #89b4fa; border-radius: 3px; color: #cdd6f4; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; text-align: right; outline: none; }
+.value-data.editable:hover { background: var(--c-control-bg); }
+.panel-edit-input { width: 120px; padding: 1px 6px; background: var(--c-base); border: 1px solid var(--c-blue); border-radius: 3px; color: var(--c-text); font-family: var(--font-mono); font-size: 12px; text-align: right; outline: none; }
 </style>

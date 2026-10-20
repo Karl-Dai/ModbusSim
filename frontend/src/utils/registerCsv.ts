@@ -1,10 +1,31 @@
 import type { RegisterDef } from '../composables/useRegisterFormat'
-const columns = ['register_type', 'address', 'data_type', 'endian', 'name', 'comment', 'mutation', 'data_source'] as const
+const columns = ['RegisterType', 'Address', 'DataType', 'Endian', 'Name', 'Comment', 'Mutation', 'DataSource'] as const
 export function encodeRegisterCsv(rows: RegisterDef[]): string {
-  rows = rows.map(row => ({ ...row, data_type: row.data_type.replace(/^u_int/, 'uint') }))
   const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
-  return '\uFEFF' + [columns.join(','), ...rows.map(row => columns.map(key => quote(key === 'mutation' || key === 'data_source' ? row[key] ? JSON.stringify(row[key]) : '' : row[key])).join(','))].join('\r\n')
+  return '\uFEFF' + [columns.join(','), ...rows.map(row => columns.map(key => quote(key === 'Mutation' || key === 'DataSource' ? row[key] ? JSON.stringify(row[key]) : '' : row[key])).join(','))].join('\r\n')
 }
+
+// Legacy CSV is translated once at import, just like a v1 project. Live DTOs
+// and new exports use native names throughout.
+function decodeBehaviour(text: string) {
+  const legacy: Record<string, string> = {
+    enabled: 'Enabled', mode: 'Mode', period_ms: 'PeriodMS', step: 'Step', min: 'Min', max: 'Max',
+    source: 'Source', update_interval_ms: 'UpdateIntervalMS', type: 'Type', value: 'Value',
+    amplitude: 'Amplitude', frequency: 'Frequency', offset: 'Offset', phase: 'Phase',
+    start: 'Start', wrap: 'Wrap', values: 'Values', loop_playback: 'LoopPlayback',
+  }
+  return JSON.parse(text, (_key, value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+    const result: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(value)) {
+      const name = legacy[key] ?? key
+      if (name in result) throw new Error(`Duplicate behaviour field: ${name}`)
+      result[name] = item
+    }
+    return result
+  })
+}
+
 /** RFC4180 quoting, including commas, doubled quotes and multiline fields. */
 export function decodeRegisterCsv(input: string): RegisterDef[] {
   const rows: string[][] = []; let row: string[] = [], field = '', quoted = false, endedQuote = false
@@ -25,28 +46,29 @@ export function decodeRegisterCsv(input: string): RegisterDef[] {
   }
   if (quoted) throw new Error('Unterminated CSV quote')
   row.push(field); if (row.some(value => value.length)) rows.push(row)
-  const header = rows.shift()?.map(value => value.trim()) ?? []
+  const aliases: Record<string, string> = {"register_type": "RegisterType", "address": "Address", "data_type": "DataType", "endian": "Endian", "name": "Name", "comment": "Comment", "mutation": "Mutation", "data_source": "DataSource"}
+  const header = rows.shift()?.map(value => aliases[value.trim()] ?? value.trim()) ?? []
   for (const required of columns.slice(0, 4)) if (!header.includes(required)) throw new Error(`Missing CSV column: ${required}`)
   if (new Set(header).size !== header.length) throw new Error('Duplicate CSV column')
   const seen = new Set<string>()
   return rows.map((values, index) => {
     if (values.length !== header.length) throw new Error(`CSV row ${index + 2}: wrong column count`)
     const fields = Object.fromEntries(header.map((key, column) => [key, values[column]]))
-    fields.data_type = fields.data_type.replace(/^u_int/, 'uint')
-    const address = Number(fields.address)
-    const width = ['holding_register', 'input_register'].includes(fields.register_type) && ['uint32', 'int32', 'float32'].includes(fields.data_type) ? 2 : 1
-    if (!fields.address.trim() || !Number.isInteger(address) || address < 0 || address + width > 65536) throw new Error(`CSV row ${index + 2}: invalid address`)
-    if (!['coil', 'discrete_input', 'input_register', 'holding_register'].includes(fields.register_type)) throw new Error(`CSV row ${index + 2}: invalid register_type`)
-    if (!['bool', 'uint16', 'int16', 'uint32', 'int32', 'float32'].includes(fields.data_type)) throw new Error(`CSV row ${index + 2}: invalid data_type`)
-    if (!['big', 'little', 'mid_big', 'mid_little'].includes(fields.endian)) throw new Error(`CSV row ${index + 2}: invalid endian`)
+    fields.DataType = fields.DataType.replace(/^u_int/, 'uint')
+    const address = Number(fields.Address)
+    const width = ['holding_register', 'input_register'].includes(fields.RegisterType) && ['uint32', 'int32', 'float32'].includes(fields.DataType) ? 2 : 1
+    if (!fields.Address.trim() || !Number.isInteger(address) || address < 0 || address + width > 65536) throw new Error(`CSV row ${index + 2}: invalid address`)
+    if (!['coil', 'discrete_input', 'input_register', 'holding_register'].includes(fields.RegisterType)) throw new Error(`CSV row ${index + 2}: invalid RegisterType`)
+    if (!['bool', 'uint16', 'int16', 'uint32', 'int32', 'float32'].includes(fields.DataType)) throw new Error(`CSV row ${index + 2}: invalid DataType`)
+    if (!['big', 'little', 'mid_big', 'mid_little'].includes(fields.Endian)) throw new Error(`CSV row ${index + 2}: invalid Endian`)
     for (let offset = 0; offset < width; offset++) {
-      const key = `${fields.register_type}:${address + offset}`
+      const key = `${fields.RegisterType}:${address + offset}`
       if (seen.has(key)) throw new Error(`CSV row ${index + 2}: overlapping address ${key}`)
       seen.add(key)
     }
-    return { register_type: fields.register_type, address, data_type: fields.data_type, endian: fields.endian,
-      name: fields.name ?? '', comment: fields.comment ?? '',
-      mutation: fields.mutation ? JSON.parse(fields.mutation) : null, data_source: fields.data_source ? JSON.parse(fields.data_source) : null }
+    return { RegisterType: fields.RegisterType, Address: address, DataType: fields.DataType, Endian: fields.Endian,
+      Name: fields.Name ?? '', Comment: fields.Comment ?? '',
+      Mutation: fields.Mutation ? decodeBehaviour(fields.Mutation) : null, DataSource: fields.DataSource ? decodeBehaviour(fields.DataSource) : null }
   })
 }
-export const registerCsvTemplate = () => encodeRegisterCsv([{ register_type: 'holding_register', address: 0, data_type: 'uint16', endian: 'big', name: 'Register 0', comment: '' }])
+export const registerCsvTemplate = () => encodeRegisterCsv([{ RegisterType: 'holding_register', Address: 0, DataType: 'uint16', Endian: 'big', Name: 'Register 0', Comment: '' }])

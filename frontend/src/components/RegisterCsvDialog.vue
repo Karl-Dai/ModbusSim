@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { ModalShell, useI18n, showConfirm } from 'shared-frontend'
 import { decodeRegisterCsv } from '../utils/registerCsv'
 import type { RegisterDef } from '../composables/useRegisterFormat'
@@ -22,7 +22,7 @@ async function apply() {
   busy.value = true
   try {
     if (mode.value === 'replace' && !await showConfirm(t('parity.confirmReplace'))) return
-    await invoke('import_registers', { request: { connection_id: props.connectionId, slave_id: props.slaveId, registers: rows.value, mode: mode.value } })
+    await App.ImportRegisters({ ConnectionID: props.connectionId, SlaveID: props.slaveId, Points: rows.value, Mode: mode.value })
     emit('imported'); emit('close')
   } catch (e) { error.value = String(e) }
   finally { busy.value = false }

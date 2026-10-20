@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, provide, onMounted, onUnmounted } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { EventsOn } from '../wailsjs/runtime/runtime'
 import Toolbar from './components/Toolbar.vue'
 import ConnectionTree from './components/ConnectionTree.vue'
 import DataTable from './components/DataTable.vue'
 import ValuePanel from './components/ValuePanel.vue'
 import LogPanel from './components/LogPanel.vue'
-import { AppDialog, UpdateDialog } from 'shared-frontend'
+import { AppDialog } from 'shared-frontend'
 import type { ScanGroupInfo, RegisterValueDto } from './types'
 
 // Shared state
@@ -47,20 +46,18 @@ provide('refreshData', refreshData)
 let unlistenConnState: (() => void) | null = null
 let unlistenPollError: (() => void) | null = null
 
-onMounted(async () => {
-  unlistenConnState = await listen<{ id: string; state: string }>('master-connection-state', (event) => {
-    const { id, state } = event.payload
+onMounted(() => {
+  unlistenConnState = EventsOn('master-connection-state', (event) => {
+    const { ConnectionID: id, State: state } = event
     if (selectedConnectionId.value === id) {
       selectedConnectionState.value = state
     }
     refreshTree()
   })
-  unlistenPollError = await listen<{ connection_id: string; error: string }>('master-poll-error', () => {
+  unlistenPollError = EventsOn('master-poll-error', () => {
     refreshTree()
   })
-  setTimeout(() => {
-    checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
-  }, 2000)
+
 })
 
 onUnmounted(() => {
@@ -84,10 +81,10 @@ function handleScanGroupSelect(connectionId: string, group: ScanGroupInfo) {
 function handleRegisterSelect(regs: RegisterValueDto[]) {
   const prev = selectedRegisters.value
   // Same selection (same addresses) → update values in-place to avoid disrupting active edits
-  if (regs.length === prev.length && regs.every((r, i) => r.address === prev[i].address)) {
+  if (regs.length === prev.length && regs.every((r, i) => r.Address === prev[i].Address)) {
     for (let i = 0; i < regs.length; i++) {
-      prev[i].raw_value = regs[i].raw_value
-      prev[i].display_value = regs[i].display_value
+      prev[i].RawValue = regs[i].RawValue
+      prev[i].DisplayValue = regs[i].DisplayValue
     }
     return
   }
@@ -98,21 +95,12 @@ function toggleLog() {
   logExpanded.value = !logExpanded.value
 }
 
-// --- Auto update -------------------------------------------------------------
-type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
-const updateMeta = ref<UpdateMeta | null>(null)
-const updateVisible = ref(false)
-
-async function checkUpdate(force = false): Promise<UpdateMeta | null> {
-  const meta = await invoke<UpdateMeta | null>('check_for_update', { force })
-  if (meta) {
-    updateMeta.value = meta
-    updateVisible.value = true
-  }
-  return meta
+const workspaceEpoch = ref(0)
+function workspaceReplaced() {
+  selectedConnectionId.value = null; selectedConnectionState.value = 'Disconnected'
+  selectedScanGroup.value = null; selectedRegisters.value = []; workspaceEpoch.value++; refreshTree()
 }
-provide('checkUpdate', checkUpdate)
-
+provide('workspaceReplaced', workspaceReplaced)
 </script>
 
 <template>
@@ -122,30 +110,25 @@ provide('checkUpdate', checkUpdate)
     </header>
 
     <aside class="tree-area">
-      <ConnectionTree
+      <ConnectionTree :key="workspaceEpoch"
         @connection-select="handleConnectionSelect"
         @scan-group-select="handleScanGroupSelect"
       />
     </aside>
     <main class="content-area">
-      <DataTable
+      <DataTable :key="workspaceEpoch"
         @register-select="handleRegisterSelect"
       />
     </main>
     <aside class="panel-area">
-      <ValuePanel />
+      <ValuePanel :key="workspaceEpoch" />
     </aside>
 
     <footer class="log-area">
-      <LogPanel :expanded="logExpanded" @toggle="toggleLog" />
+      <LogPanel :key="workspaceEpoch" :expanded="logExpanded" @toggle="toggleLog" />
     </footer>
     <AppDialog />
-    <UpdateDialog
-      :visible="updateVisible"
-      :version="updateMeta?.version ?? ''"
-      :notes="updateMeta?.notes ?? ''"
-      @close="updateVisible = false"
-    />
+
   </div>
 </template>
 
@@ -164,8 +147,8 @@ html, body, #app {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background: #11111b;
-  color: #cdd6f4;
+  background: var(--c-crust);
+  color: var(--c-text);
 }
 
 .app-layout {
@@ -186,34 +169,34 @@ body {
 
 .toolbar-area {
   grid-area: toolbar;
-  background: #1e1e2e;
-  border-bottom: 1px solid #313244;
+  background: var(--c-base);
+  border-bottom: 1px solid var(--c-surface0);
 }
 
 .tree-area {
   grid-area: tree;
-  background: #181825;
-  border-right: 1px solid #313244;
+  background: var(--c-mantle);
+  border-right: 1px solid var(--c-surface0);
   overflow-y: auto;
 }
 
 .content-area {
   grid-area: content;
-  background: #11111b;
+  background: var(--c-crust);
   overflow: hidden;
 }
 
 .panel-area {
   grid-area: panel;
-  background: #181825;
-  border-left: 1px solid #313244;
+  background: var(--c-mantle);
+  border-left: 1px solid var(--c-surface0);
   overflow-y: auto;
 }
 
 .log-area {
   grid-area: log;
-  background: #1e1e2e;
-  border-top: 1px solid #313244;
+  background: var(--c-base);
+  border-top: 1px solid var(--c-surface0);
   overflow: hidden;
 }
 </style>

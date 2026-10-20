@@ -1,10 +1,11 @@
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import type { LogEntry } from '../types/modbus'
 
-export interface LogPanelDataSource {
-  fetchLogs: (connectionId: string) => Promise<LogEntry[]>
+export interface LogPanelDataSource<T = LogEntry> {
+  fetchLogs: (connectionId: string) => Promise<T[]>
   clearLogs: (connectionId: string) => Promise<void>
   exportCsv: (connectionId: string) => Promise<string>
+  subscribe?: (onAppend: (connectionId: string) => void) => (() => void) | Promise<() => void>
   saveFile?: (content: string, defaultPath: string) => Promise<void>
 }
 
@@ -12,8 +13,8 @@ export interface LogPanelDataSource {
  * Shared log panel logic. Caller injects data source so this composable
  * does not depend on any specific Tauri command names.
  */
-export function useLogPanel(source: LogPanelDataSource) {
-  const logs = ref<LogEntry[]>([])
+export function useLogPanel<T = LogEntry>(source: LogPanelDataSource<T>) {
+  const logs = shallowRef<T[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 

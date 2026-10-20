@@ -3,8 +3,11 @@ import { createApp } from 'vue'
 import './style.css'
 import 'shared-frontend/src/styles/transitions.css'
 import 'shared-frontend/src/styles/toolbar.css'
-import { initTheme } from 'shared-frontend'
+import { desktopServicesKey, initTheme } from 'shared-frontend'
 import App from './App.vue'
 
+import { GetVersion } from '../wailsjs/go/main/App'
+import { BrowserOpenURL } from '../wailsjs/runtime/runtime'
+
 initTheme()
-createApp(App).mount('#app')
+createApp(App).provide(desktopServicesKey, { getVersion: GetVersion, openURL: BrowserOpenURL }).mount('#app')

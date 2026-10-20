@@ -1,3 +1,4 @@
+import type { project, main, appstate } from '../../wailsjs/go/models'
 import { swapBytes16, toFloat32, float32ToU16Pair, type ByteOrder } from 'shared-frontend'
 
 export type ValueFormat =
@@ -13,50 +14,11 @@ export type ValueFormat =
 
 export type MutationMode = 'flip' | 'increment' | 'decrement' | 'random'
 
-export interface MutationConfig {
-  enabled: boolean
-  mode: MutationMode
-  period_ms: number
-  step: number
-  min: number
-  max: number
-}
-
-export type DataSource =
-  | { type: 'fixed'; value: number }
-  | { type: 'random'; min: number; max: number }
-  | { type: 'sine'; amplitude: number; frequency: number; offset: number; phase: number }
-  | { type: 'sawtooth'; min: number; max: number; period_ms: number }
-  | { type: 'triangle'; min: number; max: number; period_ms: number }
-  | { type: 'counter'; start: number; step: number; wrap: boolean }
-  | { type: 'csv_playback'; values: number[]; loop_playback: boolean }
-
-export interface DataSourceConfig {
-  source: DataSource
-  update_interval_ms: number
-}
-
-export interface RegisterDef {
-  address: number
-  register_type: string
-  data_type: string
-  endian: string
-  name: string
-  comment: string
-  mutation?: MutationConfig | null
-  data_source?: DataSourceConfig | null
-}
-
-/** Info returned by `list_point_mutations` for active (enabled) points. */
-export interface PointMutationInfo {
-  register_type: string
-  address: number
-  mode: MutationMode
-  period_ms: number
-  step: number
-  min: number
-  max: number
-}
+export type MutationConfig = project.MutationConfig
+export type DataSource = project.DataSource
+export type DataSourceConfig = project.DataSourceConfig
+export type RegisterDef = main.Point
+export type PointMutationInfo = appstate.PointMutationInfo
 
 export const ENDIAN_TO_BYTEORDER: Record<string, ByteOrder> = {
   big: 'ABCD',
@@ -99,24 +61,24 @@ function applyEndianDecode(reg0: number, reg1: number, endian: string): [number,
   }
 }
 
-/** "Auto" mode: format using the register's declared data_type + endian, with companion u16 if needed. */
+/** "Auto" mode: format using the register's declared DataType + endian, with companion u16 if needed. */
 export function formatTypedValue(reg: RegisterDef, hi: number, lo: number): string {
-  switch (reg.data_type) {
+  switch (reg.DataType) {
     case 'bool':   return hi !== 0 ? 'ON' : 'OFF'
     case 'uint16': return (hi & 0xFFFF).toString()
     case 'int16':  { const v = hi & 0xFFFF; return (v >= 0x8000 ? v - 0x10000 : v).toString() }
     case 'uint32':
     case 'int32':
     case 'float32': {
-      const bytes = applyEndianDecode(hi & 0xFFFF, lo & 0xFFFF, reg.endian)
+      const bytes = applyEndianDecode(hi & 0xFFFF, lo & 0xFFFF, reg.Endian)
       const canonHi = (bytes[0] << 8) | bytes[1]
       const canonLo = (bytes[2] << 8) | bytes[3]
-      if (reg.data_type === 'float32') return toFloat32(canonHi, canonLo)
+      if (reg.DataType === 'float32') return toFloat32(canonHi, canonLo)
       const buf = new ArrayBuffer(4)
       const view = new DataView(buf)
       view.setUint16(0, canonHi)
       view.setUint16(2, canonLo)
-      if (reg.data_type === 'uint32') return view.getUint32(0).toString()
+      if (reg.DataType === 'uint32') return view.getUint32(0).toString()
       return view.getInt32(0).toString()
     }
     default: return (hi & 0xFFFF).toString()
@@ -150,4 +112,8 @@ export function encodeTypedValue(value: number, dataType: string, endian: string
     case 'BADC': return [swapBytes16(w0), swapBytes16(w1)]
     case 'DCBA': return [swapBytes16(w1), swapBytes16(w0)]
   }
+}
+
+export function normalizeMutationMode(value: string): MutationMode {
+  return value === 'increment' || value === 'decrement' || value === 'random' ? value : 'flip'
 }

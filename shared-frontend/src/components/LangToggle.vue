@@ -34,7 +34,7 @@ function pick(next: Locale) {
   margin-right: 8px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--c-surface0);
+  background: var(--c-control-bg);
   border: 1px solid var(--c-surface1);
 }
 
@@ -50,13 +50,13 @@ function pick(next: Locale) {
 }
 
 .lang-toggle-btn:hover:not(.active) {
-  background: var(--c-surface1);
+  background: var(--c-hover-bg);
   color: var(--c-text);
 }
 
 .lang-toggle-btn.active {
-  background: var(--c-surface1);
-  color: var(--c-text);
+  background: var(--c-selection-bg);
+  color: var(--c-selection-text);
   font-weight: 600;
 }
 </style>

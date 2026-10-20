@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { ref, provide, onMounted, onBeforeUnmount, computed, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import { EventsOn } from '../wailsjs/runtime/runtime'
 import Toolbar from './components/Toolbar.vue'
 import ConnectionTree from './components/ConnectionTree.vue'
 import RegisterTable from './components/RegisterTable.vue'
 import ValuePanel from './components/ValuePanel.vue'
 import LogPanel from './components/LogPanel.vue'
-import { AppDialog, UpdateDialog, Splitter, useI18n } from 'shared-frontend'
+import { AppDialog, Splitter, useI18n } from 'shared-frontend'
 
 const { t } = useI18n()
 const tableRef = ref<InstanceType<typeof RegisterTable> | null>(null)
@@ -53,7 +53,7 @@ const selectedConnectionId = ref<string | null>(null)
 const selectedConnectionState = ref<string>('Stopped')
 const selectedSlaveId = ref<number | null>(null)
 const selectedRegisterType = ref<string | null>(null)
-const selectedRegister = ref<{ address: number; register_type: string; value: number }[]>([])
+const selectedRegister = ref<{ Address: number; RegisterType: string; Value: number }[]>([])
 const logExpanded = ref(false)
 
 // Provide shared state to children
@@ -105,7 +105,7 @@ function handleGroupSelect(connectionId: string, slaveId: number, regType: strin
   selectedRegister.value = []
 }
 
-function handleRegisterSelect(regs: { address: number; register_type: string; value: number }[]) {
+function handleRegisterSelect(regs: { Address: number; RegisterType: string; Value: number }[]) {
   selectedRegister.value = regs
 }
 
@@ -113,31 +113,16 @@ function toggleLog() {
   logExpanded.value = !logExpanded.value
 }
 
-// --- Auto update -------------------------------------------------------------
-type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
-const updateMeta = ref<UpdateMeta | null>(null)
-const updateVisible = ref(false)
-
-async function checkUpdate(force = false): Promise<UpdateMeta | null> {
-  const meta = await invoke<UpdateMeta | null>('check_for_update', { force })
-  if (meta) {
-    updateMeta.value = meta
-    updateVisible.value = true
-  }
-  return meta
-}
-provide('checkUpdate', checkUpdate)
-
-let updateTimer: ReturnType<typeof setTimeout>
+let stopConnectionEvents: (() => void) | undefined
 onMounted(() => {
   resizeWorkspace()
   window.addEventListener('resize', resizeWorkspace)
-  updateTimer = setTimeout(() => {
-    checkUpdate(false).catch((e) => console.warn('auto update check failed', e))
-  }, 2000)
+  stopConnectionEvents = EventsOn('slave-connection-state', (event: { ID: string; State: string }) => {
+    if (selectedConnectionId.value === event.ID) selectedConnectionState.value = event.State
+    refreshTree()
+  })
 })
-
-onBeforeUnmount(() => { window.removeEventListener('resize', resizeWorkspace); clearTimeout(updateTimer) })
+onBeforeUnmount(() => { window.removeEventListener('resize', resizeWorkspace); stopConnectionEvents?.() })
 </script>
 
 <template>
@@ -172,12 +157,6 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeWorkspace); c
       <LogPanel :key="workspaceEpoch" :expanded="logExpanded" @toggle="toggleLog" />
     </footer>
     <AppDialog />
-    <UpdateDialog
-      :visible="updateVisible"
-      :version="updateMeta?.version ?? ''"
-      :notes="updateMeta?.notes ?? ''"
-      @close="updateVisible = false"
-    />
   </div>
 </template>
 

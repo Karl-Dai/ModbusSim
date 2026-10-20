@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, inject, watch, computed, provide, shallowRef, onMounted, onUnmounted, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { float32ToU16Pair, useI18n, useFcLabel, formatAddress, showAlert, showConfirm, showPrompt, type ByteOrder } from 'shared-frontend'
 import RegisterCsvDialog from './RegisterCsvDialog.vue'
@@ -15,7 +15,7 @@ import { useRegisterValues } from '../composables/useRegisterValues'
 import {
   formatU16, formatTypedValue, formatFloatPair, encodeTypedValue,
   is32BitType, isFloatFormat as isFloatFmt,
-  type MutationMode, type PointMutationInfo,
+   type PointMutationInfo,
   type RegisterDef as Register, type ValueFormat,
 } from '../composables/useRegisterFormat'
 
@@ -23,7 +23,7 @@ const { t } = useI18n()
 const { registerTypeLabel } = useFcLabel()
 
 const emit = defineEmits<{
-  (e: 'register-select', regs: { address: number; register_type: string; value: number }[]): void
+  (e: 'register-select', regs: { Address: number; RegisterType: string; Value: number }[]): void
 }>()
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
@@ -40,7 +40,7 @@ const selectedRows = shallowRef<Register[]>([])
 const actionBusy = ref(false)
 const showCsvImport = ref(false)
 const lastClickedIndex = ref<number>(-1)
-const editingCell = ref<{ address: number; register_type: string } | null>(null)
+const editingCell = ref<{ Address: number; RegisterType: string } | null>(null)
 const editValue = ref('')
 const searchQuery = ref('')
 const contextMenu = ref({ show: false, x: 0, y: 0, reg: null as Register | null })
@@ -56,7 +56,7 @@ const dataSourceTarget = ref<Register | undefined>(undefined)
 async function exportCsv() {
   if (!selectedConnectionId.value || selectedSlaveId.value === null) return
   try {
-    const rows = await invoke<Register[]>('list_registers', { connectionId: selectedConnectionId.value, slaveId: selectedSlaveId.value })
+    const rows = await App.ListRegisters(selectedConnectionId.value, selectedSlaveId.value, '')
     await saveExport(encodeRegisterCsv(rows), `modbus_${selectedSlaveId.value}_registers.csv`)
   } catch (e) { await showAlert(String(e)) }
 }
@@ -68,7 +68,7 @@ function simulation() {
 }
 defineExpose({ exportCsv, template, importCsv, simulation })
 async function copySelected() {
-  try { await navigator.clipboard.writeText(selectedRows.value.map(reg => `${reg.register_type}\t${fmtAddress(reg)}\t${reg.name}\t${currentValueFor(reg)}`).join('\n')) }
+  try { await navigator.clipboard.writeText(selectedRows.value.map(reg => `${reg.RegisterType}\t${fmtAddress(reg)}\t${reg.Name}\t${currentValueFor(reg)}`).join('\n')) }
   catch (e) { await showAlert(String(e)) }
 }
 async function deleteSelected() {
@@ -80,7 +80,7 @@ async function deleteSelected() {
     let done = 0
     try {
       for (const reg of rows) {
-        await invoke('remove_register', { connectionId, slaveId, address: reg.address, registerType: reg.register_type }); done++
+        await App.RemoveRegister(connectionId, slaveId, reg.Address, reg.RegisterType); done++
       }
     } catch (e) { await showAlert(t('parity.partialResult', { n: done, total: rows.length }) + '\n' + String(e)) }
     clearSelection(); await loadRegisters()
@@ -96,15 +96,15 @@ async function writeSelected() {
     const value = Number(text)
     if (!text.trim() || !Number.isFinite(value)) throw new Error(t('parity.invalidNumber'))
     const writes = rows.map(reg => {
-      const bit = isBitType(reg.register_type)
+      const bit = isBitType(reg.RegisterType)
       const ranges: Record<string, [number, number]> = { uint16: [0, 65535], int16: [-32768, 32767], uint32: [0, 4294967295], int32: [-2147483648, 2147483647] }
-      const range = ranges[reg.data_type]
-      if (bit && value !== 0 && value !== 1 || range && (!Number.isInteger(value) || value < range[0] || value > range[1]) || reg.data_type === 'float32' && !Number.isFinite(Math.fround(value))) throw new Error(t('parity.invalidNumber'))
-      const encoded = is32BitType(reg.data_type) ? encodeTypedValue(value, reg.data_type, reg.endian) : [reg.data_type === 'int16' && value < 0 ? value + 65536 : value]
-      return encoded.map((word, offset) => ({ connection_id: connectionId, slave_id: slaveId, register_type: reg.register_type, address: reg.address + offset, value: word }))
+      const range = ranges[reg.DataType]
+      if (bit && value !== 0 && value !== 1 || range && (!Number.isInteger(value) || value < range[0] || value > range[1]) || reg.DataType === 'float32' && !Number.isFinite(Math.fround(value))) throw new Error(t('parity.invalidNumber'))
+      const encoded = is32BitType(reg.DataType) ? encodeTypedValue(value, reg.DataType, reg.Endian) : [reg.DataType === 'int16' && value < 0 ? value + 65536 : value]
+      return encoded.map((word, offset) => ({ ConnectionID: connectionId, SlaveID: slaveId, RegisterType: reg.RegisterType, Address: reg.Address + offset, Value: word }))
     }).flat()
     let done = 0
-    try { for (const request of writes) { await invoke('write_register', { request }); done++ } }
+    try { for (const request of writes) { await App.WriteRegister(request); done++ } }
     catch (e) { await showAlert(t('parity.partialResult', { n: done, total: writes.length }) + '\n' + String(e)) }
     await refreshValues(); emitSelection()
   } catch (e) { await showAlert(String(e)) }
@@ -160,7 +160,7 @@ function startColumnResize(event: PointerEvent, key: ColumnKey) {
 // Point-mutation config modal + simulation settings drawer
 const showMutationModal = ref(false)
 const mutationTarget = ref<Register | undefined>(undefined)
-const mutationModes = ref<Record<string, MutationMode>>({})
+const mutationModes = ref<Record<string, string>>({})
 const mutationRows = ref<PointMutationInfo[]>([])
 const showSimDrawer = ref(false)
 const simTargetRegs = ref<Register[]>([])
@@ -176,11 +176,11 @@ function openMutation(reg: Register) {
   showMutationModal.value = true
 }
 function mutationKey(reg: Register): string {
-  return `${reg.register_type}-${reg.address}`
+  return `${reg.RegisterType}-${reg.Address}`
 }
-function pointMutationMode(reg: Register): MutationMode | undefined {
+function pointMutationMode(reg: Register): string | undefined {
   return mutationModes.value[mutationKey(reg)]
-    ?? (reg.mutation?.enabled ? reg.mutation.mode : undefined)
+    ?? (reg.Mutation?.Enabled ? reg.Mutation.Mode : undefined)
 }
 async function refreshMutationIndicators() {
   if (!selectedConnectionId.value || selectedSlaveId.value === null) {
@@ -191,16 +191,11 @@ async function refreshMutationIndicators() {
   const connectionId = selectedConnectionId.value
   const slaveId = selectedSlaveId.value
   try {
-    const rows = await invoke<PointMutationInfo[]>('list_point_mutations', {
-      request: {
-        connection_id: selectedConnectionId.value,
-        slave_id: selectedSlaveId.value,
-      },
-    })
+    const rows = await App.ListPointMutations(selectedConnectionId.value, selectedSlaveId.value)
     if (disposed || connectionId !== selectedConnectionId.value || slaveId !== selectedSlaveId.value) return
     mutationRows.value = rows
     mutationModes.value = Object.fromEntries(
-      rows.map(row => [`${row.register_type}-${row.address}`, row.mode])
+      rows.map(row => [`${row.RegisterType}-${row.Address}`, row.Mode])
     )
   } catch {
     mutationModes.value = {}
@@ -225,14 +220,14 @@ async function onMutationSaved() {
 }
 
 /** Live value string for a point, used by the Simulation Settings drawer. */
-function currentValueFor(reg: { register_type: string; address: number }): string {
+function currentValueFor(reg: { RegisterType: string; Address: number }): string {
   const full = registers.value.find(
-    (r) => r.register_type === reg.register_type && r.address === reg.address,
+    (r) => r.RegisterType === reg.RegisterType && r.Address === reg.Address,
   )
-  const hi = getValueByKey(reg.register_type, reg.address)
+  const hi = getValueByKey(reg.RegisterType, reg.Address)
   if (!full) return String(hi)
-  const lo = is32BitType(full.data_type)
-    ? getValueByKey(reg.register_type, reg.address + 1)
+  const lo = is32BitType(full.DataType)
+    ? getValueByKey(reg.RegisterType, reg.Address + 1)
     : 0
   return formatTypedValue(full, hi, lo)
 }
@@ -267,22 +262,22 @@ const formatOptions = computed<{ value: ValueFormat; label: string }[]>(() => [
 const isFloatFormat = computed(() => isFloatFmt(valueFormat.value))
 
 function getValue(reg: Register): number {
-  return getValueByKey(reg.register_type, reg.address)
+  return getValueByKey(reg.RegisterType, reg.Address)
 }
 
 const companionKeys = computed(() => {
   const set = new Set<string>()
   for (const reg of registers.value) {
-    if (is32BitType(reg.data_type)) {
-      set.add(`${reg.register_type}-${reg.address + 1}`)
+    if (is32BitType(reg.DataType)) {
+      set.add(`${reg.RegisterType}-${reg.Address + 1}`)
     }
   }
   return set
 })
 
 function isCompanionRegister(reg: Register): boolean {
-  if (is32BitType(reg.data_type)) return false
-  return companionKeys.value.has(`${reg.register_type}-${reg.address}`)
+  if (is32BitType(reg.DataType)) return false
+  return companionKeys.value.has(`${reg.RegisterType}-${reg.Address}`)
 }
 
 const floatCompanionIndices = computed(() => {
@@ -291,7 +286,7 @@ const floatCompanionIndices = computed(() => {
   const list = filteredRegisters.value
   let i = 0
   while (i < list.length - 1) {
-    if (list[i + 1].address === list[i].address + 1 && list[i + 1].register_type === list[i].register_type) {
+    if (list[i + 1].Address === list[i].Address + 1 && list[i + 1].RegisterType === list[i].RegisterType) {
       set.add(i + 1)
       i += 2
     } else {
@@ -309,13 +304,13 @@ function isDisplayCompanion(reg: Register, index: number): boolean {
 
 function getDisplayValue(reg: Register, index: number): string {
   if (valueFormat.value === 'auto') {
-    const lo = registerValues.value[`${reg.register_type}-${reg.address + 1}`] ?? 0
+    const lo = registerValues.value[`${reg.RegisterType}-${reg.Address + 1}`] ?? 0
     return formatTypedValue(reg, getValue(reg), lo)
   }
   if (isFloatFormat.value) {
     const list = filteredRegisters.value
     const nextCandidate = index + 1 < list.length ? list[index + 1] : undefined
-    const nextReg = nextCandidate && nextCandidate.address === reg.address + 1 && nextCandidate.register_type === reg.register_type
+    const nextReg = nextCandidate && nextCandidate.Address === reg.Address + 1 && nextCandidate.RegisterType === reg.RegisterType
       ? nextCandidate
       : undefined
     return formatFloatPair(valueFormat.value, getValue(reg), nextReg ? getValue(nextReg) : 0)
@@ -330,7 +325,7 @@ function onRegisterSaved() {
 const filteredRegisters = computed(() => {
   let result = registers.value
   if (selectedRegisterType.value) {
-    result = result.filter(r => r.register_type === selectedRegisterType.value)
+    result = result.filter(r => r.RegisterType === selectedRegisterType.value)
   }
   const q = searchQuery.value.trim()
   if (!q) return result
@@ -338,7 +333,7 @@ const filteredRegisters = computed(() => {
     const hexPart = q.slice(2).toUpperCase()
     if (!hexPart) return result
     return result.filter(r => {
-      const addrHex = r.address.toString(16).toUpperCase().padStart(4, '0')
+      const addrHex = r.Address.toString(16).toUpperCase().padStart(4, '0')
       return addrHex.includes(hexPart)
     })
   }
@@ -346,13 +341,13 @@ const filteredRegisters = computed(() => {
     const num = Number(q)
     const hexPart = q.toUpperCase()
     return result.filter(r => {
-      if (r.address === num) return true
-      const addrHex = r.address.toString(16).toUpperCase().padStart(4, '0')
+      if (r.Address === num) return true
+      const addrHex = r.Address.toString(16).toUpperCase().padStart(4, '0')
       return addrHex.includes(hexPart)
     })
   }
   const lower = q.toLowerCase()
-  return result.filter(r => r.name.toLowerCase().includes(lower))
+  return result.filter(r => r.Name.toLowerCase().includes(lower))
 })
 
 const scrollContainerRef = ref<HTMLElement | null>(null)
@@ -408,7 +403,7 @@ function clearSelection() {
 }
 
 function isSelected(reg: Register): boolean {
-  return selectedRows.value.some(r => r.address === reg.address && r.register_type === reg.register_type)
+  return selectedRows.value.some(r => r.Address === reg.Address && r.RegisterType === reg.RegisterType)
 }
 
 function selectRow(e: MouseEvent, reg: Register) {
@@ -422,7 +417,7 @@ function selectRow(e: MouseEvent, reg: Register) {
     selectedRows.value = list.slice(start, end + 1)
   } else if (isCtrl) {
     if (isSelected(reg)) {
-      selectedRows.value = selectedRows.value.filter(r => !(r.address === reg.address && r.register_type === reg.register_type))
+      selectedRows.value = selectedRows.value.filter(r => !(r.Address === reg.Address && r.RegisterType === reg.RegisterType))
     } else {
       selectedRows.value = [...selectedRows.value, reg]
     }
@@ -437,9 +432,9 @@ function selectRow(e: MouseEvent, reg: Register) {
 
 function emitSelection() {
   const regs = selectedRows.value.map(r => ({
-    address: r.address,
-    register_type: r.register_type,
-    value: getValue(r),
+    Address: r.Address,
+    RegisterType: r.RegisterType,
+    Value: getValue(r),
   }))
   emit('register-select', regs)
 }
@@ -459,7 +454,7 @@ function handleTableKeydown(e: KeyboardEvent) {
     let currentIdx = -1
     if (selectedRows.value.length > 0) {
       const last = selectedRows.value[selectedRows.value.length - 1]
-      currentIdx = list.findIndex(r => r.address === last.address && r.register_type === last.register_type)
+      currentIdx = list.findIndex(r => r.Address === last.Address && r.RegisterType === last.RegisterType)
     }
 
     let nextIdx: number
@@ -481,7 +476,7 @@ function handleTableKeydown(e: KeyboardEvent) {
 function startEdit(reg: Register) {
   const idx = filteredRegisters.value.indexOf(reg)
   if (isDisplayCompanion(reg, idx)) return
-  editingCell.value = { address: reg.address, register_type: reg.register_type }
+  editingCell.value = { Address: reg.Address, RegisterType: reg.RegisterType }
   if (valueFormat.value === 'auto' || isFloatFormat.value) {
     editValue.value = getDisplayValue(reg, idx)
   } else {
@@ -493,19 +488,17 @@ function isBitType(rt: string): boolean {
   return rt === 'coil' || rt === 'discrete_input'
 }
 
-async function applyWrites(register_type: string, writes: Array<[number, number]>): Promise<boolean> {
+async function applyWrites(RegisterType: string, writes: Array<[number, number]>): Promise<boolean> {
   try {
     for (const [addr, value] of writes) {
-      await invoke('write_register', {
-        request: {
-          connection_id: selectedConnectionId.value,
-          slave_id: selectedSlaveId.value,
-          register_type,
-          address: addr,
-          value,
-        }
-      })
-      registerValues.value[`${register_type}-${addr}`] = value
+      await App.WriteRegister({
+          ConnectionID: selectedConnectionId.value!,
+          SlaveID: selectedSlaveId.value!,
+          RegisterType,
+          Address: addr,
+          Value: value,
+        })
+      registerValues.value[`${RegisterType}-${addr}`] = value
     }
     emitSelection()
     return true
@@ -517,11 +510,11 @@ async function applyWrites(register_type: string, writes: Array<[number, number]
 
 async function commitEdit() {
   if (!editingCell.value || !selectedConnectionId.value || selectedSlaveId.value === null) return
-  const { address, register_type } = editingCell.value
-  const reg = registers.value.find(r => r.address === address && r.register_type === register_type)
+  const { Address: address, RegisterType } = editingCell.value
+  const reg = registers.value.find(r => r.Address === address && r.RegisterType === RegisterType)
   editingCell.value = null
 
-  const needsFloat32Write = isFloatFormat.value || (valueFormat.value === 'auto' && reg && is32BitType(reg.data_type))
+  const needsFloat32Write = isFloatFormat.value || (valueFormat.value === 'auto' && reg && is32BitType(reg.DataType))
 
   if (needsFloat32Write) {
     const inputVal = parseFloat(editValue.value)
@@ -531,24 +524,24 @@ async function commitEdit() {
       const order = (valueFormat.value.replace('float32_', '').toUpperCase() as ByteOrder) || 'ABCD'
       ;[hi, lo] = float32ToU16Pair(inputVal, order)
     } else {
-      ;[hi, lo] = encodeTypedValue(inputVal, reg!.data_type, reg!.endian)
+      ;[hi, lo] = encodeTypedValue(inputVal, reg!.DataType, reg!.Endian)
     }
-    await applyWrites(register_type, [[address, hi], [address + 1, lo]])
+    await applyWrites(RegisterType, [[address, hi], [address + 1, lo]])
     return
   }
 
-  if (valueFormat.value === 'auto' && reg && reg.data_type === 'int16') {
+  if (valueFormat.value === 'auto' && reg && reg.DataType === 'int16') {
     const inputVal = Number(editValue.value)
     if (isNaN(inputVal)) return
     const value = inputVal < 0 ? (inputVal + 0x10000) & 0xFFFF : inputVal & 0xFFFF
-    await applyWrites(register_type, [[address, value]])
+    await applyWrites(RegisterType, [[address, value]])
     return
   }
 
   const inputVal = Number(editValue.value)
   if (isNaN(inputVal)) return
-  const value = isBitType(register_type) ? (inputVal !== 0 ? 1 : 0) : inputVal
-  await applyWrites(register_type, [[address, value]])
+  const value = isBitType(RegisterType) ? (inputVal !== 0 ? 1 : 0) : inputVal
+  await applyWrites(RegisterType, [[address, value]])
 }
 
 function cancelEdit() {
@@ -579,14 +572,9 @@ async function deleteRegister() {
   if (!reg || !selectedConnectionId.value || selectedSlaveId.value === null) return
   if (!(await showConfirm(t('errors.confirmDeleteRegister')))) return
   try {
-    await invoke('remove_register', {
-      connectionId: selectedConnectionId.value,
-      slaveId: selectedSlaveId.value,
-      address: reg.address,
-      registerType: reg.register_type,
-    })
+    await App.RemoveRegister(selectedConnectionId.value, selectedSlaveId.value, reg.Address, reg.RegisterType)
     if (isSelected(reg)) {
-      selectedRows.value = selectedRows.value.filter(r => !(r.address === reg.address && r.register_type === reg.register_type))
+      selectedRows.value = selectedRows.value.filter(r => !(r.Address === reg.Address && r.RegisterType === reg.RegisterType))
       emitSelection()
     }
     await loadRegisters()
@@ -596,7 +584,7 @@ async function deleteRegister() {
 }
 
 function fmtAddress(reg: Register): string {
-  return formatAddress(reg.address, addrMode.value)
+  return formatAddress(reg.Address, addrMode.value)
 }
 
 function toggleAddrMode() {
@@ -671,11 +659,11 @@ function toggleAddrMode() {
       <div class="virtual-body" :style="{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }">
         <div
           v-for="virtualRow in rowVirtualizer.getVirtualItems()"
-          :key="`${filteredRegisters[virtualRow.index]?.register_type}:${filteredRegisters[virtualRow.index]?.address}`"
+          :key="`${filteredRegisters[virtualRow.index]?.RegisterType}:${filteredRegisters[virtualRow.index]?.Address}`"
           class="virtual-row"
           :class="{
             selected: isSelected(filteredRegisters[virtualRow.index]),
-            'value-changed': changedKeys.has(`${filteredRegisters[virtualRow.index].register_type}-${filteredRegisters[virtualRow.index].address}`)
+            'value-changed': changedKeys.has(`${filteredRegisters[virtualRow.index].RegisterType}-${filteredRegisters[virtualRow.index].Address}`)
           }"
           :style="{
             position: 'absolute',
@@ -689,7 +677,7 @@ function toggleAddrMode() {
           @contextmenu.prevent="showContextMenu($event, filteredRegisters[virtualRow.index])"
         >
           <span class="vcol col-addr" :title="fmtAddress(filteredRegisters[virtualRow.index])">{{ fmtAddress(filteredRegisters[virtualRow.index]) }}</span>
-          <span class="vcol col-name" :title="filteredRegisters[virtualRow.index].name || '-'">
+          <span class="vcol col-name" :title="filteredRegisters[virtualRow.index].Name || '-'">
             <button
               class="mut-badge"
               :class="{ active: !!pointMutationMode(filteredRegisters[virtualRow.index]) }"
@@ -698,14 +686,14 @@ function toggleAddrMode() {
             >{{ modeSymbol(pointMutationMode(filteredRegisters[virtualRow.index])) }}</button>
             <button
               class="source-badge"
-              :class="{ active: !!filteredRegisters[virtualRow.index].data_source }"
+              :class="{ active: !!filteredRegisters[virtualRow.index].DataSource }"
               @click.stop="openDataSource(filteredRegisters[virtualRow.index])"
               :title="t('dataSource.configure')"
             >≈</button>
-            {{ filteredRegisters[virtualRow.index].name || '-' }}
+            {{ filteredRegisters[virtualRow.index].Name || '-' }}
           </span>
-          <span :class="['vcol', 'col-value', { wide: valueFormat === 'auto', 'value-highlight': changedKeys.has(`${filteredRegisters[virtualRow.index].register_type}-${filteredRegisters[virtualRow.index].address}`) }]" @dblclick.stop="startEdit(filteredRegisters[virtualRow.index])">
-            <template v-if="editingCell?.address === filteredRegisters[virtualRow.index].address && editingCell?.register_type === filteredRegisters[virtualRow.index].register_type">
+          <span :class="['vcol', 'col-value', { wide: valueFormat === 'auto', 'value-highlight': changedKeys.has(`${filteredRegisters[virtualRow.index].RegisterType}-${filteredRegisters[virtualRow.index].Address}`) }]" @dblclick.stop="startEdit(filteredRegisters[virtualRow.index])">
+            <template v-if="editingCell?.Address === filteredRegisters[virtualRow.index].Address && editingCell?.RegisterType === filteredRegisters[virtualRow.index].RegisterType">
               <input
                 v-model="editValue"
                 class="edit-input"
@@ -718,17 +706,17 @@ function toggleAddrMode() {
             </template>
             <template v-else>
               <span
-                v-if="filteredRegisters[virtualRow.index].register_type === 'coil' || filteredRegisters[virtualRow.index].register_type === 'discrete_input'"
+                v-if="filteredRegisters[virtualRow.index].RegisterType === 'coil' || filteredRegisters[virtualRow.index].RegisterType === 'discrete_input'"
                 :class="['bool-value', getValue(filteredRegisters[virtualRow.index]) ? 'on' : 'off']"
               >
                 {{ getValue(filteredRegisters[virtualRow.index]) ? 'ON' : 'OFF' }}
               </span>
               <span v-else-if="isDisplayCompanion(filteredRegisters[virtualRow.index], virtualRow.index)" class="companion-value">&#x22EF;</span>
-              <span v-else-if="valueFormat === 'auto' || isFloatFormat" class="num-value" :title="valueFormat === 'auto' ? `${filteredRegisters[virtualRow.index].data_type} (${filteredRegisters[virtualRow.index].endian})` : ''">{{ getDisplayValue(filteredRegisters[virtualRow.index], virtualRow.index) }}</span>
+              <span v-else-if="valueFormat === 'auto' || isFloatFormat" class="num-value" :title="valueFormat === 'auto' ? `${filteredRegisters[virtualRow.index].DataType} (${filteredRegisters[virtualRow.index].Endian})` : ''">{{ getDisplayValue(filteredRegisters[virtualRow.index], virtualRow.index) }}</span>
               <span v-else class="num-value">{{ formatU16(getValue(filteredRegisters[virtualRow.index]), valueFormat) }}</span>
             </template>
           </span>
-          <span class="vcol col-comment" :title="filteredRegisters[virtualRow.index].comment || '-'">{{ filteredRegisters[virtualRow.index].comment || '-' }}</span>
+          <span class="vcol col-comment" :title="filteredRegisters[virtualRow.index].Comment || '-'">{{ filteredRegisters[virtualRow.index].Comment || '-' }}</span>
         </div>
       </div>
     </div>
@@ -1109,12 +1097,12 @@ function toggleAddrMode() {
   color: var(--c-surface1);
 }
 
-.virtual-row.value-changed {
+.virtual-row.Value-changed {
   background: rgba(250, 179, 135, 0.18);
   transition: background 0.6s ease-out;
 }
 
-.virtual-row.value-changed.selected {
+.virtual-row.Value-changed.selected {
   background: var(--c-blue);
 }
 

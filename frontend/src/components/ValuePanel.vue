@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, computed, ref, watch, nextTick, type Ref, type Directive } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { swapBytes16, use16BitFormat, use32BitFormat, use64BitFormat, formatAddress, useI18n, useFcLabel, showAlert } from 'shared-frontend'
 
 const { t } = useI18n()
@@ -14,9 +14,9 @@ const vFocus: Directive<HTMLInputElement> = {
 }
 
 interface SelectedReg {
-  address: number
-  register_type: string
-  value: number
+  Address: number
+  RegisterType: string
+  Value: number
 }
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
@@ -28,20 +28,20 @@ const refreshRegisters = inject<() => void>('refreshRegisters')!
 const hasSelection = computed(() => selectedRegister.value.length > 0)
 
 const sortedRegs = computed(() => {
-  return [...selectedRegister.value].sort((a, b) => a.address - b.address)
+  return [...selectedRegister.value].sort((a, b) => a.Address - b.Address)
 })
 
 const firstReg = computed(() => sortedRegs.value[0] ?? null)
 
 const isBoolType = computed(() => {
   if (!firstReg.value) return false
-  return firstReg.value.register_type === 'coil' || firstReg.value.register_type === 'discrete_input'
+  return firstReg.value.RegisterType === 'coil' || firstReg.value.RegisterType === 'discrete_input'
 })
 
 const allSameType = computed(() => {
   if (sortedRegs.value.length <= 1) return true
-  const t = sortedRegs.value[0].register_type
-  return sortedRegs.value.every(r => r.register_type === t)
+  const t = sortedRegs.value[0].RegisterType
+  return sortedRegs.value.every(r => r.RegisterType === t)
 })
 
 const selCount = computed(() => sortedRegs.value.length)
@@ -57,16 +57,16 @@ function fmtAddress(addr: number): string {
 
 const panelTitle = computed(() => {
   if (!firstReg.value) return ''
-  const prefix = registerTypeLabel(firstReg.value.register_type)
+  const prefix = registerTypeLabel(firstReg.value.RegisterType)
   if (selCount.value === 1) {
-    return `${prefix} @ ${fmtAddress(firstReg.value.address)}`
+    return `${prefix} @ ${fmtAddress(firstReg.value.Address)}`
   }
   const last = sortedRegs.value[sortedRegs.value.length - 1]
-  return `${prefix} @ ${fmtAddress(firstReg.value.address)}~${fmtAddress(last.address)}`
+  return `${prefix} @ ${fmtAddress(firstReg.value.Address)}~${fmtAddress(last.Address)}`
 })
 
 // 16-bit interpretations (shared composable)
-const rawValue = computed(() => firstReg.value ? firstReg.value.value & 0xFFFF : 0)
+const rawValue = computed(() => firstReg.value ? firstReg.value.Value & 0xFFFF : 0)
 const { signed16, unsigned16, hex16, binary16 } = use16BitFormat(rawValue)
 
 // 32-bit
@@ -74,8 +74,8 @@ const show32bit = computed(() => {
   return selCount.value >= 2 && allSameType.value && !isBoolType.value
 })
 
-const reg32Hi = computed(() => show32bit.value ? sortedRegs.value[0].value & 0xFFFF : 0)
-const reg32Lo = computed(() => show32bit.value ? sortedRegs.value[1].value & 0xFFFF : 0)
+const reg32Hi = computed(() => show32bit.value ? sortedRegs.value[0].Value & 0xFFFF : 0)
+const reg32Lo = computed(() => show32bit.value ? sortedRegs.value[1].Value & 0xFFFF : 0)
 const { longABCD, longCDAB, longBADC, longDCBA, floatABCD, floatCDAB, floatBADC, floatDCBA } =
   use32BitFormat(reg32Hi, reg32Lo, show32bit)
 
@@ -86,7 +86,7 @@ const show64bit = computed(() => {
 
 const reg64Values = computed(() => {
   if (!show64bit.value) return [0, 0, 0, 0]
-  return sortedRegs.value.slice(0, 4).map(r => r.value & 0xFFFF)
+  return sortedRegs.value.slice(0, 4).map(r => r.Value & 0xFFFF)
 })
 const { doubleValue, doubleReversed, doubleByteSwap, doubleLittleEndian } =
   use64BitFormat(reg64Values, show64bit)
@@ -111,7 +111,7 @@ watch(selectedRegister, () => {
   cancelEdit()
 })
 
-function reverseParseField(field: string, input: string): { address: number; register_type: string; value: number }[] | null {
+function reverseParseField(field: string, input: string): { Address: number; RegisterType: string; Value: number }[] | null {
   const regs = sortedRegs.value
   if (regs.length === 0) return null
 
@@ -120,18 +120,18 @@ function reverseParseField(field: string, input: string): { address: number; reg
     const n = Number(input)
     if (isNaN(n)) return null
     const v = n < 0 ? (n + 0x10000) & 0xFFFF : n & 0xFFFF
-    return [{ address: regs[0].address, register_type: regs[0].register_type, value: v }]
+    return [{ Address: regs[0].Address, RegisterType: regs[0].RegisterType, Value: v }]
   }
   if (field === 'unsigned16') {
     const n = Number(input)
     if (isNaN(n)) return null
-    return [{ address: regs[0].address, register_type: regs[0].register_type, value: n & 0xFFFF }]
+    return [{ Address: regs[0].Address, RegisterType: regs[0].RegisterType, Value: n & 0xFFFF }]
   }
   if (field === 'hex16') {
     const hex = input.replace(/^0x/i, '')
     const n = parseInt(hex, 16)
     if (isNaN(n)) return null
-    return [{ address: regs[0].address, register_type: regs[0].register_type, value: n & 0xFFFF }]
+    return [{ Address: regs[0].Address, RegisterType: regs[0].RegisterType, Value: n & 0xFFFF }]
   }
 
   // 32-bit Long
@@ -150,8 +150,8 @@ function reverseParseField(field: string, input: string): { address: number; reg
     }
     const [r0, r1] = map[field]
     return [
-      { address: regs[0].address, register_type: regs[0].register_type, value: r0 },
-      { address: regs[1].address, register_type: regs[1].register_type, value: r1 },
+      { Address: regs[0].Address, RegisterType: regs[0].RegisterType, Value: r0 },
+      { Address: regs[1].Address, RegisterType: regs[1].RegisterType, Value: r1 },
     ]
   }
   // 32-bit Float
@@ -172,8 +172,8 @@ function reverseParseField(field: string, input: string): { address: number; reg
     }
     const [r0, r1] = map[field]
     return [
-      { address: regs[0].address, register_type: regs[0].register_type, value: r0 },
-      { address: regs[1].address, register_type: regs[1].register_type, value: r1 },
+      { Address: regs[0].Address, RegisterType: regs[0].RegisterType, Value: r0 },
+      { Address: regs[1].Address, RegisterType: regs[1].RegisterType, Value: r1 },
     ]
   }
 
@@ -196,25 +196,23 @@ function reverseParseField(field: string, input: string): { address: number; reg
     } else {
       vals = [swapBytes16(w[3]), swapBytes16(w[2]), swapBytes16(w[1]), swapBytes16(w[0])]
     }
-    return vals.map((v, i) => ({ address: regs[i].address, register_type: regs[i].register_type, value: v }))
+    return vals.map((v, i) => ({ Address: regs[i].Address, RegisterType: regs[i].RegisterType, Value: v }))
   }
 
   return null
 }
 
-async function writeRegisters(writes: { address: number; register_type: string; value: number }[]) {
+async function writeRegisters(writes: { Address: number; RegisterType: string; Value: number }[]) {
   if (!selectedConnectionId.value || selectedSlaveId.value === null) return
   try {
     for (const w of writes) {
-      await invoke('write_register', {
-        request: {
-          connection_id: selectedConnectionId.value,
-          slave_id: selectedSlaveId.value,
-          register_type: w.register_type,
-          address: w.address,
-          value: w.value,
-        }
-      })
+      await App.WriteRegister({
+          ConnectionID: selectedConnectionId.value,
+          SlaveID: selectedSlaveId.value,
+          RegisterType: w.RegisterType,
+          Address: w.Address,
+          Value: w.Value,
+        })
     }
   } catch (e) {
     await showAlert(String(e))
@@ -240,9 +238,9 @@ async function commitEdit() {
 
 async function toggleBool(reg: SelectedReg) {
   await writeRegisters([{
-    address: reg.address,
-    register_type: reg.register_type,
-    value: reg.value !== 0 ? 0 : 1,
+    Address: reg.Address,
+    RegisterType: reg.RegisterType,
+    Value: reg.Value !== 0 ? 0 : 1,
   }])
 }
 
@@ -274,9 +272,9 @@ async function handleEditKeydown(e: KeyboardEvent) {
       <!-- Bool type -->
       <template v-if="isBoolType">
         <div class="value-section">
-          <div v-for="reg in sortedRegs" :key="`${reg.register_type}-${reg.address}`" class="value-row">
-            <span class="value-label">{{ fmtAddress(reg.address) }}</span>
-            <span class="value-data editable" @click="toggleBool(reg)">{{ reg.value !== 0 ? 'true (1)' : 'false (0)' }}</span>
+          <div v-for="reg in sortedRegs" :key="`${reg.RegisterType}-${reg.Address}`" class="value-row">
+            <span class="value-label">{{ fmtAddress(reg.Address) }}</span>
+            <span class="value-data editable" @click="toggleBool(reg)">{{ reg.Value !== 0 ? 'true (1)' : 'false (0)' }}</span>
           </div>
         </div>
       </template>
@@ -307,7 +305,7 @@ async function handleEditKeydown(e: KeyboardEvent) {
         </div>
 
         <div v-if="show32bit" class="value-section">
-          <div class="section-title">32-bit ({{ sortedRegs.slice(0, 2).map(r => fmtAddress(r.address)).join(' + ') }})</div>
+          <div class="section-title">32-bit ({{ sortedRegs.slice(0, 2).map(r => fmtAddress(r.Address)).join(' + ') }})</div>
           <div class="value-row">
             <span class="value-label">Long AB CD</span>
             <input v-if="editingField === 'longABCD'" v-focus v-model="editValue" class="panel-edit-input" @blur="onBlur" @keydown="handleEditKeydown" />
@@ -351,7 +349,7 @@ async function handleEditKeydown(e: KeyboardEvent) {
         </div>
 
         <div v-if="show64bit" class="value-section">
-          <div class="section-title">64-bit ({{ sortedRegs.slice(0, 4).map(r => fmtAddress(r.address)).join(' + ') }})</div>
+          <div class="section-title">64-bit ({{ sortedRegs.slice(0, 4).map(r => fmtAddress(r.Address)).join(' + ') }})</div>
           <div class="value-row">
             <span class="value-label">Double AB CD EF GH</span>
             <input v-if="editingField === 'double'" v-focus v-model="editValue" class="panel-edit-input" @blur="onBlur" @keydown="handleEditKeydown" />

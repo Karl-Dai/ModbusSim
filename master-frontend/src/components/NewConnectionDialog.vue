@@ -1,24 +1,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
-import { useI18n, showAlert, vModal } from 'shared-frontend'
+import * as App from '../../wailsjs/go/main/App'
+import type { masterstate, project } from '../../wailsjs/go/models'
+
+import { PathField, showAlert, useI18n, vModal } from 'shared-frontend'
 import CommunicationSettings from './CommunicationSettings.vue'
-import { defaultCommunicationOptions, validCommunicationOptions, type CommunicationOptions } from '../communication'
+import { defaultCommunicationOptions, validCommunicationOptions } from '../communication'
 
 const { t } = useI18n()
 
 interface Props { show: boolean; connectionId?: string }
-interface ConnectionSettings {
-  transport: { type: string; port: string | number; baud_rate?: number; data_bits?: number; stop_bits?: number; parity?: string }
-  config: {
-    target_address: string; port: number; slave_id: number; timeout_ms: number
-    requests: CommunicationOptions['requests']
-    tls: { enabled: boolean; ca_file: string; cert_file: string; key_file: string; pkcs12_file: string; pkcs12_password: string; accept_invalid_certs: boolean }
-    socks5: { enabled: boolean; host: string; port: number; username: string; password: string }
-  }
-  reconnect_policy: Omit<CommunicationOptions['reconnect'], 'max_attempts'> & { max_attempts: number | null }
-}
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'close'): void
@@ -87,34 +78,22 @@ watch(() => [props.show, props.connectionId] as const, async ([visible, connecti
   if (!connectionId) return
   busy.value = true
   try {
-    const settings = await invoke<ConnectionSettings>('get_master_connection_settings', { connectionId })
+    const settings = await App.GetSettings(connectionId)
     if (cancelled) return
-    const { config, transport, reconnect_policy } = settings
-    form.value = {
-      transport: transport.type === 'tcp_tls' ? 'tcp' : transport.type,
-      target_address: config.target_address, port: config.port,
-      slave_id: config.slave_id, timeout_ms: config.timeout_ms,
-    }
-    communication.value = { requests: config.requests, reconnect: { ...reconnect_policy, max_attempts: reconnect_policy.max_attempts ?? 0 } }
-    if (transport.type === 'rtu' || transport.type === 'ascii') {
-      serialPort.value = String(transport.port)
-      baudRate.value = transport.baud_rate!
-      dataBits.value = transport.data_bits!
-      stopBits.value = transport.stop_bits!
-      parityMode.value = transport.parity!
-    }
-    useTls.value = transport.type === 'tcp_tls'
-    tlsCaFile.value = config.tls.ca_file
-    tlsCertFile.value = config.tls.cert_file
-    tlsKeyFile.value = config.tls.key_file
-    tlsPkcs12File.value = config.tls.pkcs12_file
-    tlsPkcs12Password.value = config.tls.pkcs12_password
-    tlsAcceptInvalidCerts.value = config.tls.accept_invalid_certs
-    useSocks5.value = config.socks5.enabled
-    socks5Host.value = config.socks5.host
-    socks5Port.value = config.socks5.port
-    socks5Username.value = config.socks5.username
-    socks5Password.value = config.socks5.password
+    const transport = settings.Transport
+    form.value = { transport: transport.Type === 'tcp_tls' ? 'tcp' : transport.Type,
+      target_address: transport.Host ?? '', port: transport.Port ?? 502,
+      slave_id: settings.SlaveID, timeout_ms: settings.TimeoutMS }
+    communication.value = { requests: settings.Requests, reconnect: { ...settings.Reconnect, MaxAttempts: settings.Reconnect.MaxAttempts ?? 0 } }
+    if (transport.Serial) { const sc = transport.Serial; serialPort.value = sc.Port; baudRate.value = sc.BaudRate; dataBits.value = sc.DataBits; stopBits.value = sc.StopBits; parityMode.value = sc.Parity }
+    useTls.value = transport.Type === 'tcp_tls'
+    const tls = transport.TLS
+    tlsCaFile.value = tls?.CAFile ?? ''; tlsCertFile.value = tls?.CertFile ?? ''; tlsKeyFile.value = tls?.KeyFile ?? ''
+    tlsPkcs12File.value = tls?.PKCS12File ?? ''; tlsPkcs12Password.value = tls?.PKCS12Password ?? ''; tlsAcceptInvalidCerts.value = tls?.AcceptInvalidCerts ?? false
+    const proxy = settings.Socks5
+    useSocks5.value = !!proxy; socks5Host.value = proxy?.Host ?? '127.0.0.1'; socks5Port.value = proxy?.Port ?? 1080
+    socks5Username.value = proxy?.Username ?? ''; socks5Password.value = proxy?.Password ?? ''
+
   } catch (e) {
     if (!cancelled) { error.value = String(e); loadFailed.value = true }
   } finally {
@@ -128,17 +107,15 @@ watch(() => form.value.transport, (val) => {
 
 async function refreshSerialPorts() {
   try {
-    serialPorts.value = await invoke('list_serial_ports')
+    serialPorts.value = (await App.ListSerialPorts()).map(name => ({ name, description: '', manufacturer: '' }))
   } catch (e) { await showAlert(String(e)) }
 }
 
 async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
   try {
-    const path = await open({
-      filters: target === 'pkcs12'
-        ? [{ name: 'PKCS#12', extensions: ['p12', 'pfx'] }]
-        : [{ name: 'PEM Certificate', extensions: ['pem', 'crt', 'key'] }],
-    })
+    const path = await App.OpenFileDialog(target === 'pkcs12'
+      ? [{ Name: 'PKCS#12', Extensions: ['p12', 'pfx'] }]
+      : [{ Name: 'PEM Certificate', Extensions: ['pem', 'crt', 'key'] }])
     if (!path) return
     const p = path as string
     if (target === 'cert') tlsCertFile.value = p
@@ -174,54 +151,17 @@ async function submit() {
     return
   }
 
-  let transport: Record<string, unknown>
-  if (form.value.transport === 'tcp') {
-    transport = { type: 'tcp', host: form.value.target_address, port: form.value.port }
-    if (useTls.value) transport = { type: 'tcp_tls', host: form.value.target_address, port: form.value.port }
-  } else if (form.value.transport === 'rtu' || form.value.transport === 'ascii') {
-    transport = {
-      type: form.value.transport,
-      serial_port: serialPort.value,
-      baud_rate: baudRate.value,
-      data_bits: dataBits.value,
-      stop_bits: stopBits.value,
-      parity: parityMode.value,
-    }
-  } else {
-    transport = { type: 'rtu_over_tcp', host: form.value.target_address, port: form.value.port }
-  }
-
+  const transport: project.Transport = needsSerial
+    ? { Type: form.value.transport, Serial: { Port: serialPort.value, BaudRate: baudRate.value, DataBits: dataBits.value, StopBits: stopBits.value, Parity: parityMode.value } }
+    : { Type: form.value.transport === 'tcp' && useTls.value ? 'tcp_tls' : form.value.transport, Host: form.value.target_address.trim(), Port: form.value.port }
+  if (transport.Type === 'tcp_tls') transport.TLS = { Enabled: true, CAFile: tlsCaFile.value, CertFile: tlsCertFile.value, KeyFile: tlsKeyFile.value, PKCS12File: tlsPkcs12File.value, PKCS12Password: tlsPkcs12Password.value, AcceptInvalidCerts: tlsAcceptInvalidCerts.value }
+  const settings: masterstate.Settings = { Transport: transport, SlaveID: form.value.slave_id, TimeoutMS: form.value.timeout_ms,
+    Requests: communication.value.requests, Reconnect: { ...communication.value.reconnect, MaxAttempts: communication.value.reconnect.MaxAttempts || undefined },
+    Socks5: usesNetwork && useSocks5.value ? { Host: socks5Host.value.trim(), Port: socks5Port.value, Username: socks5Username.value, Password: socks5Password.value } : undefined }
   try {
     busy.value = true
-    await invoke(props.connectionId ? 'update_master_connection' : 'create_master_connection', {
-      ...(props.connectionId ? { connectionId: props.connectionId } : {}),
-      request: {
-        transport,
-        slave_id: form.value.slave_id,
-        timeout_ms: form.value.timeout_ms,
-        requests: communication.value.requests,
-        reconnect_policy: {
-          ...communication.value.reconnect,
-          max_attempts: communication.value.reconnect.max_attempts || null,
-        },
-        use_tls: form.value.transport === 'tcp' && useTls.value,
-        ca_file: tlsCaFile.value || undefined,
-        cert_file: tlsCertFile.value || undefined,
-        key_file: tlsKeyFile.value || undefined,
-        pkcs12_file: tlsPkcs12File.value || undefined,
-        pkcs12_password: tlsPkcs12Password.value || undefined,
-        accept_invalid_certs: tlsAcceptInvalidCerts.value || undefined,
-        ...(usesNetwork ? {
-          socks5: {
-            enabled: useSocks5.value,
-            host: socks5Host.value.trim(),
-            port: socks5Port.value,
-            username: socks5Username.value,
-            password: socks5Password.value,
-          },
-        } : {}),
-      }
-    })
+    if (props.connectionId) await App.UpdateConnection(props.connectionId, settings)
+    else await App.CreateConnection(settings)
     emit('close')
     if (props.connectionId) emit('saved')
     else emit('created')
@@ -288,34 +228,22 @@ async function submit() {
                 <input type="checkbox" v-model="tlsAcceptInvalidCerts" aria-describedby="tls-compatibility-hint" /> {{ t('dialog.acceptInvalidCerts') }}
               </label>
               <div id="tls-compatibility-hint" class="form-hint">{{ t('dialog.tlsCompatibilityHint') }}</div>
-              <label class="form-label">
+              <div class="form-label">
                 {{ t('dialog.caFile') }}
-                <div class="file-row">
-                  <input v-model="tlsCaFile" class="form-input" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('ca')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsCaFile" :placeholder="t('dialog.caFilePlaceholder')" @browse="pickFile('ca')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.clientCert') }}
-                <div class="file-row">
-                  <input v-model="tlsCertFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('cert')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsCertFile" :placeholder="t('dialog.clientCertPlaceholder')" @browse="pickFile('cert')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.clientKey') }}
-                <div class="file-row">
-                  <input v-model="tlsKeyFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('key')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsKeyFile" :placeholder="t('dialog.clientCertPlaceholder')" @browse="pickFile('key')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.pkcs12File') }}
-                <div class="file-row">
-                  <input v-model="tlsPkcs12File" class="form-input" type="text" :placeholder="t('dialog.pkcs12FilePlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('pkcs12')">...</button>
-                </div>
-              </label>
+                <PathField v-model="tlsPkcs12File" :placeholder="t('dialog.pkcs12FilePlaceholder')" @browse="pickFile('pkcs12')" />
+              </div>
               <label class="form-label" v-if="tlsPkcs12File">
                 {{ t('dialog.pkcs12Password') }}
                 <input v-model="tlsPkcs12Password" class="form-input" type="password" :placeholder="t('dialog.passwordPlaceholder')" />
@@ -393,25 +321,25 @@ async function submit() {
 
 <style scoped>
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { box-sizing: border-box; background: #1e1e2e; border: 1px solid #45475a; border-radius: 8px; padding: 20px; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
-.modal-title { font-size: 15px; font-weight: 600; color: #cdd6f4; margin-bottom: 16px; }
+.modal-box { box-sizing: border-box; background: var(--c-base); border: 1px solid var(--c-surface1); border-radius: 8px; padding: 20px; width: 400px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.modal-title { font-size: 15px; font-weight: 600; color: var(--c-text); margin-bottom: 16px; }
 .modal-body { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .form-error { color: var(--c-red); white-space: pre-wrap; overflow-wrap: anywhere; }
 button:disabled { opacity: 0.4; cursor: default; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .form-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--c-subtext0); }
 .checkbox-label { flex-direction: row; align-items: center; }
-.form-hint { margin-top: -6px; color: #a6adc8; font-size: 11px; line-height: 1.4; }
+.form-hint { margin-top: -6px; color: var(--c-subtext0); font-size: 11px; line-height: 1.4; }
 .timeout-hint { max-width: 300px; font-size: 12px; line-height: 1.5; }
-.form-input { padding: 6px 10px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; font-size: 13px; }
-.form-input:focus { outline: none; border-color: #89b4fa; }
+.form-input { padding: 6px 10px; background: var(--c-control-bg); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; }
+.form-input:focus { outline: none; border-color: var(--c-blue); }
 .file-row { display: flex; gap: 4px; }
 .file-row > input, .file-row > select { flex: 1; min-width: 0; }
-.tool-btn { padding: 4px 8px; background: #313244; border: 1px solid #45475a; border-radius: 4px; color: #cdd6f4; cursor: pointer; font-size: 14px; }
-.tool-btn:hover { background: #45475a; }
+.tool-btn { padding: 4px 8px; background: var(--c-control-bg); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); cursor: pointer; font-size: 14px; }
+.tool-btn:hover { background: var(--c-surface1); }
 .btn { padding: 7px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn-primary { background: #89b4fa; color: #1e1e2e; }
-.btn-primary:hover { background: #74c7ec; }
-.btn-secondary { background: #45475a; color: #cdd6f4; }
-.btn-secondary:hover { background: #585b70; }
+.btn-primary { background: var(--c-blue); color: var(--c-on-accent); }
+.btn-primary:hover { background: var(--c-accent-hover); }
+.btn-secondary { background: var(--c-neutral-bg); color: var(--c-text); }
+.btn-secondary:hover { background: var(--c-hover-bg); }
 </style>

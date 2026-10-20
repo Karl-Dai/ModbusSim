@@ -34,7 +34,7 @@ function toggle() {
   height: 24px;
   margin-right: 8px;
   border-radius: 4px;
-  background: var(--c-surface0);
+  background: var(--c-control-bg);
   border: 1px solid var(--c-surface1);
   color: var(--c-subtext0);
   cursor: pointer;
@@ -42,7 +42,7 @@ function toggle() {
 }
 
 .theme-toggle:hover {
-  background: var(--c-surface1);
+  background: var(--c-hover-bg);
   color: var(--c-text);
 }
 </style>

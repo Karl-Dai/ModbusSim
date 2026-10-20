@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { ref, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert } from 'shared-frontend'
 
 const { t } = useI18n()
 
 interface Register {
-  address: number
-  register_type: string
-  data_type: string
-  endian: string
-  name: string
-  comment: string
+  Address: number
+  RegisterType: string
+  DataType: string
+  Endian: string
+  Name: string
+  Comment: string
 }
 
 interface Props {
@@ -57,11 +57,11 @@ const count = computed(() => candidateAddresses.value.length)
 function overlapsExisting(address: number): boolean {
   const candidateEnd = address + wordWidth.value - 1
   return props.existingRegisters.some((register) => {
-    if (register.register_type !== formType.value) return false
-    const isWide = (register.register_type === 'holding_register' || register.register_type === 'input_register')
-      && ['uint32', 'int32', 'float32'].includes(register.data_type)
-    const existingEnd = register.address + (isWide ? 1 : 0)
-    return address <= existingEnd && register.address <= candidateEnd
+    if (register.RegisterType !== formType.value) return false
+    const isWide = (register.RegisterType === 'holding_register' || register.RegisterType === 'input_register')
+      && ['uint32', 'int32', 'float32'].includes(register.DataType)
+    const existingEnd = register.Address + (isWide ? 1 : 0)
+    return address <= existingEnd && register.Address <= candidateEnd
   })
 }
 
@@ -83,23 +83,22 @@ async function handleConfirm() {
   for (const addr of candidateAddresses.value) {
     if (overlapsExisting(addr)) continue
     registers.push({
-      address: addr,
-      register_type: formType.value,
-      data_type: formDataType.value,
-      endian: formEndian.value,
-      name: namePrefix.value ? `${namePrefix.value}_${addr}` : '',
-      comment: '',
+      Address: addr,
+      RegisterType: formType.value,
+      DataType: formDataType.value,
+      Endian: formEndian.value,
+      Name: namePrefix.value ? `${namePrefix.value}_${addr}` : '',
+      Comment: '',
     })
   }
 
   try {
-    await invoke('import_registers', {
-      request: {
-        connection_id: props.connectionId,
-        slave_id: props.slaveId,
-        registers,
-      },
-    })
+    await App.ImportRegisters({
+      Mode: "append",
+        ConnectionID: props.connectionId,
+        SlaveID: props.slaveId,
+        Points: registers,
+      })
     emit('saved')
     emit('close')
   } catch (err) {

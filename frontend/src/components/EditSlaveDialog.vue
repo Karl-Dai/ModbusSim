@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert } from 'shared-frontend'
 
 const { t } = useI18n()
@@ -38,14 +38,12 @@ async function submit() {
     return
   }
   try {
-    await invoke('update_slave_device', {
-      request: {
-        connection_id: props.connectionId,
-        original_slave_id: props.originalSlaveId,
-        slave_id: slaveId.value,
-        name: slaveName.value.trim(),
-      },
-    })
+    await App.UpdateDevice({
+        ConnectionID: props.connectionId,
+        OriginalSlaveID: props.originalSlaveId,
+        SlaveID: slaveId.value,
+        Name: slaveName.value.trim(),
+      })
     emit('updated', slaveId.value)
     emit('close')
   } catch (error) {

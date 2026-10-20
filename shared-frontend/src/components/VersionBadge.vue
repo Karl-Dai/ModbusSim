@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
+import { desktopServicesKey } from '../types/desktop'
 import { RELEASE_HIGHLIGHTS } from '../releaseNotes'
 import { useI18n } from 'shared-frontend'
 
+const desktop = inject(desktopServicesKey, null)
 const { t, locale } = useI18n()
 
 const REPO_URL = 'https://github.com/Karl-Dai/ModbusSim'
@@ -13,7 +15,8 @@ const showPanel = ref(false)
 const analyticsEnabled = ref(true)
 
 onMounted(async () => {
-  try { version.value = await getVersion() } catch { version.value = '' }
+  try { version.value = await (desktop ? desktop.getVersion() : getVersion()) } catch { version.value = '' }
+  if (desktop) return
   try { analyticsEnabled.value = await invoke<boolean>('get_analytics_enabled') } catch { /* not in Tauri */ }
 })
 
@@ -21,6 +24,7 @@ onMounted(async () => {
 // opener plugin via raw invoke (shared-frontend only depends on @tauri-apps/api).
 // Outside Tauri (plain vite dev in browser) invoke throws — fall back to window.open.
 async function openRepo() {
+  if (desktop) { desktop.openURL(REPO_URL); return }
   try {
     await invoke('plugin:opener|open_url', { url: REPO_URL })
   } catch {
@@ -74,11 +78,11 @@ async function toggleAnalytics() {
       <div class="about-panel" role="dialog" :aria-label="t('about.title')">
         <div class="about-title">ModbusSim<span v-if="version"> v{{ version }}</span></div>
         <ul class="release-notes"><li v-for="note in RELEASE_HIGHLIGHTS[locale]" :key="note">{{ note }}</li></ul>
-        <label class="about-row">
+        <label v-if="!desktop" class="about-row">
           <input type="checkbox" :checked="analyticsEnabled" @change="toggleAnalytics" />
           <span>{{ t('about.analytics') }}</span>
         </label>
-        <div class="about-note">{{ t('about.analyticsNote') }}</div>
+        <div v-if="!desktop" class="about-note">{{ t('about.analyticsNote') }}</div>
       </div>
     </template>
   </div>

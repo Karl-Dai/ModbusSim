@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { ref, watch, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert } from 'shared-frontend'
 
 const { t } = useI18n()
 
 interface Register {
-  address: number
-  register_type: string
-  data_type: string
-  endian: string
-  name: string
-  comment: string
+  Address: number
+  RegisterType: string
+  DataType: string
+  Endian: string
+  Name: string
+  Comment: string
 }
 
 interface Props {
@@ -45,12 +45,12 @@ watch(
   () => {
     if (props.show) {
       if (props.mode === 'edit' && props.register) {
-        formName.value = props.register.name || ''
-        formAddress.value = props.register.address
-        formType.value = props.register.register_type
-        formDataType.value = props.register.data_type
-        formEndian.value = props.register.endian
-        formComment.value = props.register.comment || ''
+        formName.value = props.register.Name || ''
+        formAddress.value = props.register.Address
+        formType.value = props.register.RegisterType
+        formDataType.value = props.register.DataType
+        formEndian.value = props.register.Endian
+        formComment.value = props.register.Comment || ''
       } else {
         formName.value = ''
         formAddress.value = undefined
@@ -80,11 +80,11 @@ function hasConflict(): boolean {
   return props.existingRegisters.some(
     (r) => {
       const isOriginal = props.mode === 'edit'
-        && r.address === props.register?.address
-        && r.register_type === props.register?.register_type
-      if (isOriginal || r.register_type !== formType.value) return false
-      const existingEnd = occupiedEnd(r.address, r.register_type, r.data_type)
-      return formAddress.value! <= existingEnd && r.address <= candidateEnd
+        && r.Address === props.register?.Address
+        && r.RegisterType === props.register?.RegisterType
+      if (isOriginal || r.RegisterType !== formType.value) return false
+      const existingEnd = occupiedEnd(r.Address, r.RegisterType, r.DataType)
+      return formAddress.value! <= existingEnd && r.Address <= candidateEnd
     }
   )
 }
@@ -101,31 +101,28 @@ async function handleConfirm() {
 }
 
 async function save() {
+  if (formAddress.value === undefined) return
   try {
     const request = {
-      connection_id: props.connectionId,
-      slave_id: props.slaveId,
-      address: formAddress.value,
-      register_type: formType.value,
-      data_type: formDataType.value,
-      endian: formEndian.value,
-      name: formName.value || null,
-      comment: formComment.value || null,
+      ConnectionID: props.connectionId,
+      SlaveID: props.slaveId,
+      Address: formAddress.value,
+      RegisterType: formType.value,
+      DataType: formDataType.value,
+      Endian: formEndian.value,
+      Name: formName.value,
+      Comment: formComment.value,
     }
     if (props.mode === 'edit' && props.register) {
-      await invoke('update_register', {
-        request: {
+      await App.UpdateRegister({
           ...request,
-          original_address: props.register.address,
-          original_register_type: props.register.register_type,
-        },
-      })
+          OriginalAddress: props.register.Address,
+          OriginalRegisterType: props.register.RegisterType,
+        })
     } else {
-      await invoke('add_register', {
-        request: {
+      await App.AddRegister({
           ...request,
-        },
-      })
+        })
     }
     emit('saved')
     emit('close')

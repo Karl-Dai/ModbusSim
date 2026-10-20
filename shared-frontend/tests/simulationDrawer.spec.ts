@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../frontend/wailsjs/go/main/App'
 import SimulationSettingsDrawer from '../../frontend/src/components/SimulationSettingsDrawer.vue'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('../../frontend/wailsjs/go/main/App', () => ({ SetPointMutation: vi.fn(), ClearPointMutation: vi.fn(), SetMutationRunning: vi.fn() }))
 
 const points = [0, 1].map(address => ({
-  address, register_type: 'coil', data_type: 'bool', endian: 'big', name: '', comment: '',
+  Address: address, RegisterType: 'coil', DataType: 'bool', Endian: 'big', Name: '', Comment: '',
 }))
 let wrapper: ReturnType<typeof mount> | undefined
 afterEach(() => { wrapper?.unmount(); vi.resetAllMocks() })
@@ -15,13 +15,13 @@ for (const operation of ['apply', 'stop'] as const) {
   for (const dismissal of ['button', 'escape', 'backdrop'] as const) {
     it(`allows ${dismissal} during pending ${operation} and keeps the original targets`, async () => {
       let finish!: () => void
-      vi.mocked(invoke).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
-      vi.mocked(invoke).mockResolvedValue(undefined)
+      vi.mocked(operation === 'apply' ? App.SetPointMutation : App.ClearPointMutation).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+      vi.mocked(operation === 'apply' ? App.SetPointMutation : App.ClearPointMutation).mockResolvedValue(undefined)
       wrapper = mount(SimulationSettingsDrawer, {
         attachTo: document.body,
         props: {
           show: true, connectionId: 'original', slaveId: 1, selectedRegs: points,
-          activeRows: points.map(point => ({ ...point, mode: 'flip', period_ms: 1000, step: 1, min: 0, max: 1 })),
+          activeRows: points.map(point => ({ ...point, Mode: 'flip', PeriodMS: 1000, Step: 1, Min: 0, Max: 1 })),
           currentValueFor: () => 'OFF',
         },
       })
@@ -38,12 +38,15 @@ for (const operation of ['apply', 'stop'] as const) {
       await wrapper.setProps({ show: false, connectionId: 'other', slaveId: 2, selectedRegs: [] })
       finish()
       await flushPromises()
-      const command = operation === 'apply' ? 'set_point_mutation' : 'clear_point_mutation'
-      const calls = vi.mocked(invoke).mock.calls.filter(([name]) => name === command)
+      const calls = vi.mocked(operation === 'apply' ? App.SetPointMutation : App.ClearPointMutation).mock.calls
       expect(calls).toHaveLength(2)
-      expect(calls.map(([, args]) => (args as { request: unknown }).request)).toEqual(points.map(point => expect.objectContaining({
-        connection_id: 'original', slave_id: 1, register_type: 'coil', address: point.address,
-      })))
+      if (operation === 'apply') {
+        expect(calls.map(([request]) => request)).toEqual(points.map(point => expect.objectContaining({
+          ConnectionID: 'original', SlaveID: 1, RegisterType: 'coil', Address: point.Address,
+        })))
+      } else {
+        expect(calls).toEqual(points.map(point => ['original', 1, 'coil', point.Address]))
+      }
       expect(wrapper.emitted('changed')).toHaveLength(1)
     })
   }

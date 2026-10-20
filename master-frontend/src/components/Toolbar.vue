@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, inject, ref, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { save, open } from '@tauri-apps/plugin-dialog'
+import * as App from '../../wailsjs/go/main/App'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import {
   useI18n,
-  useUpdateProgress,
-  localizeUpdateError,
   AppToolbar,
   useProjectShortcuts,
+  useTheme,
+  type ThemeMode,
   type ToolbarAction,
   type ToolbarMenuDefinition,
   showAlert,
@@ -19,6 +19,15 @@ import NewScanGroupDialog from './NewScanGroupDialog.vue'
 import WriteDialog from './WriteDialog.vue'
 
 const { t } = useI18n()
+const { mode: themeMode, setMode: setThemeMode } = useTheme()
+function themeItem(id: ThemeMode, labelKey: string): ToolbarAction {
+  return {
+    id: `theme-${id}`,
+    label: `${themeMode.value === id ? '✓ ' : ''}${t(labelKey)}`,
+    separatorBefore: id === 'auto',
+    action: () => setThemeMode(id),
+  }
+}
 
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedConnectionState = inject<Ref<string>>('selectedConnectionState')!
@@ -42,59 +51,30 @@ const showNewScanGroup = ref(false)
 const showWriteModal = ref(false)
 const showScanDialog = ref(false)
 
-type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
-const checkUpdate = inject<(force?: boolean) => Promise<UpdateMeta | null>>('checkUpdate')!
-const updateChecking = ref(false)
-const updateProgress = useUpdateProgress(t)
-const updateBusy = computed(() => updateChecking.value || updateProgress.active.value)
-const updateButtonLabel = computed(() =>
-  updateProgress.active.value
-    ? updateProgress.label.value
-    : updateChecking.value
-      ? t('toolbar.checkingUpdate')
-      : t('toolbar.checkUpdate'),
-)
-
-async function manualCheckUpdate() {
-  if (updateBusy.value) return
-  updateChecking.value = true
-  let message: string | null = null
-  try {
-    const meta = await checkUpdate(true)
-    if (!meta) message = t('toolbar.alreadyLatest')
-  } catch (e) {
-    message = `${t('toolbar.updateCheckFailed')}: ${localizeUpdateError(e, t)}`
-  } finally {
-    updateChecking.value = false
-  }
-  if (message) await showAlert(message)
-}
-
+const workspaceReplaced = inject<() => void>('workspaceReplaced', refreshTree)
+const projectFilters = [{ Name: 'Modbus Project', Extensions: ['modbusproj'] }]
 async function openProject() {
   try {
-    const path = await open({ filters: [{ name: 'Modbus Project', extensions: ['modbusproj'] }] })
+    const path = await App.OpenFileDialog(projectFilters)
     if (!path) return
-    await invoke('load_project_file', { path })
-    currentProjectPath.value = path as string
-    refreshTree()
+    await App.LoadProject(path)
+    currentProjectPath.value = path
+    workspaceReplaced()
   } catch (e) { await showAlert(String(e)) }
 }
 
 async function saveProject() {
   if (!currentProjectPath.value) return saveProjectAs()
   try {
-    await invoke('save_project_file', { path: currentProjectPath.value })
+    await App.SaveProject(currentProjectPath.value)
   } catch (e) { await showAlert(String(e)) }
 }
 
 async function saveProjectAs() {
   try {
-    const path = await save({
-      filters: [{ name: 'Modbus Project', extensions: ['modbusproj'] }],
-      defaultPath: 'untitled.modbusproj',
-    })
+    const path = await App.SaveFileDialog('untitled.modbusproj', projectFilters)
     if (!path) return
-    await invoke('save_project_file', { path })
+    await App.SaveProject(path)
     currentProjectPath.value = path
   } catch (e) { await showAlert(String(e)) }
 }
@@ -102,8 +82,7 @@ async function saveProjectAs() {
 async function connectMaster() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('connect_master', { connectionId: selectedConnectionId.value })
-    selectedConnectionState.value = 'Connected'
+    await App.Connect(selectedConnectionId.value)
     refreshTree()
     const doScan = await showConfirm(t('errors.connectSuccessAskScan'))
     if (doScan) showScanDialog.value = true
@@ -113,8 +92,7 @@ async function connectMaster() {
 async function disconnectMaster() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('disconnect_master', { connectionId: selectedConnectionId.value })
-    selectedConnectionState.value = 'Disconnected'
+    await App.Disconnect(selectedConnectionId.value)
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -123,9 +101,8 @@ async function deleteMaster() {
   if (!selectedConnectionId.value) return
   if (!await showConfirm(t('errors.confirmDeleteConnection'))) return
   try {
-    await invoke('delete_master_connection', { connectionId: selectedConnectionId.value })
+    await App.DeleteConnection(selectedConnectionId.value)
     selectedConnectionId.value = null
-    selectedConnectionState.value = 'Disconnected'
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -133,7 +110,7 @@ async function deleteMaster() {
 async function startAllPolling() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('start_all_polling', { connectionId: selectedConnectionId.value })
+    await App.StartAllPolling(selectedConnectionId.value)
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -141,7 +118,7 @@ async function startAllPolling() {
 async function stopAllPolling() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('stop_all_polling', { connectionId: selectedConnectionId.value })
+    await App.StopAllPolling(selectedConnectionId.value)
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -171,9 +148,14 @@ const menus = computed<ToolbarMenuDefinition[]>(() => [
     actions.value.newConnection, actions.value.settings, actions.value.connect, actions.value.disconnect, actions.value.remove,
   ] },
   { id: 'polling', label: t('toolbar.menuPolling'), items: [actions.value.newScanGroup, actions.value.startPolling, actions.value.stopPolling] },
-  { id: 'tools', label: t('common.tools'), items: [{ ...actions.value.write, separatorBefore: false }, actions.value.scan] },
+  { id: 'tools', label: t('common.tools'), items: [
+    { ...actions.value.write, separatorBefore: false }, actions.value.scan,
+    themeItem('auto', 'parity.themeSystem'),
+    themeItem('light', 'parity.themeLight'),
+    themeItem('dark', 'parity.themeDark'),
+  ] },
   { id: 'help', label: t('parity.menuHelp'), items: [
-    { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, busy: updateBusy.value, action: manualCheckUpdate },
+    { id: 'releases', label: t('parity.openReleases'), action: () => BrowserOpenURL('https://github.com/Karl-Dai/ModbusSim/releases') },
   ] },
 ])
 const quickActions = computed<ToolbarAction[]>(() => [
@@ -184,7 +166,7 @@ const quickActions = computed<ToolbarAction[]>(() => [
 
 <template>
   <AppToolbar :title="t('toolbar.appTitleMaster')" :menus="menus" :actions="quickActions"
-    :busy="busy" :project-path="currentProjectPath" :status="updateBusy ? updateButtonLabel : ''" />
+    :busy="busy" :project-path="currentProjectPath"  />
 
   <NewConnectionDialog :show="showNewConn" @close="showNewConn = false" @created="refreshTree" />
   <NewConnectionDialog v-if="editingConnectionId" :show="true" :connection-id="editingConnectionId"

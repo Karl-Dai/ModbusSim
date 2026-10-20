@@ -72,6 +72,10 @@ export { useProjectShortcuts } from './composables/useProjectShortcuts'
 export type { ToolbarAction, ToolbarMenuDefinition } from './types/toolbar'
 
 export { default as ModalShell } from './components/ModalShell.vue'
+export { default as PathField } from './components/PathField.vue'
 export { vModal } from './directives/modal'
 
 export { RELEASE_HIGHLIGHTS } from './releaseNotes'
+
+export type { LogFields } from './composables/useLogFilter'
+export { desktopServicesKey } from './types/desktop'
