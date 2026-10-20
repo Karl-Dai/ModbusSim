@@ -8,6 +8,20 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.7] - 2026-10-20
+
+### Highlights / 亮点
+
+- 📄 证书路径字段优先显示路径末尾（文件名），悬停查看完整路径，点击即可编辑整段路径。 / Certificate path fields now lead with the file name at the end of the path; hover shows the full path and clicking opens it for editing.
+- 🖱️ macOS 文件选择框改为独立窗口，可随意拖动（包括拖到其他屏幕），不再以无法移动的 sheet 形式贴在主窗口上。 / The macOS file picker is now a free-standing window that can be dragged anywhere — even to another screen — instead of an immovable sheet attached to the main window.
+
+### Fixed 修复
+
+- 子站 TLS 接受 PEM 格式的 RSA 私钥，TLS 监听启动失败时向前端报告错误。 / Slave TLS accepts PEM-encoded RSA keys and reports listener startup failures to the frontend. (#18)
+- 新建连接对话框中证书路径过长时只能看到路径开头，无法辨认所选文件；现在默认显示路径尾部。 / Long certificate paths in the new-connection dialog only showed the path head, hiding the chosen file; the path tail is now shown by default.
+- macOS 证书文件选择框以 sheet 形式弹出且无法拖动；现改为不带父窗口的原生面板（Windows/Linux 行为不变）。 / The macOS certificate picker popped up as a sheet that could not be moved; it now uses a parentless native panel (Windows/Linux behavior unchanged).
+- 证书/私钥输入框的占位提示与字段含义不符：服务器证书、服务器私钥曾显示“CA 证书路径”，客户端私钥曾显示“可选，用于 mTLS”。 / Placeholder texts mismatched their fields: server certificate/key showed the CA-certificate hint and the client key showed the mTLS hint.
+
 ## [0.17.6] - 2026-10-10
 
 ### Highlights / 亮点

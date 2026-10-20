@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
-import { useI18n, showAlert, vModal } from 'shared-frontend'
+import { useI18n, showAlert, vModal, PathField } from 'shared-frontend'
 import CommunicationSettings from './CommunicationSettings.vue'
 import { defaultCommunicationOptions, validCommunicationOptions, type CommunicationOptions } from '../communication'
 
@@ -134,13 +133,14 @@ async function refreshSerialPorts() {
 
 async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
   try {
-    const path = await open({
+    // Goes through a custom command so macOS shows a free-standing (movable)
+    // panel instead of a window sheet.
+    const p = await invoke<string | null>('pick_certificate_file', {
       filters: target === 'pkcs12'
-        ? [{ name: 'PKCS#12', extensions: ['p12', 'pfx'] }]
-        : [{ name: 'PEM Certificate', extensions: ['pem', 'crt', 'key'] }],
+        ? [['PKCS#12', ['p12', 'pfx']]]
+        : [['PEM Certificate', ['pem', 'crt', 'key']]],
     })
-    if (!path) return
-    const p = path as string
+    if (!p) return
     if (target === 'cert') tlsCertFile.value = p
     else if (target === 'key') tlsKeyFile.value = p
     else if (target === 'ca') tlsCaFile.value = p
@@ -288,34 +288,22 @@ async function submit() {
                 <input type="checkbox" v-model="tlsAcceptInvalidCerts" aria-describedby="tls-compatibility-hint" /> {{ t('dialog.acceptInvalidCerts') }}
               </label>
               <div id="tls-compatibility-hint" class="form-hint">{{ t('dialog.tlsCompatibilityHint') }}</div>
-              <label class="form-label">
+              <div class="form-label">
                 {{ t('dialog.caFile') }}
-                <div class="file-row">
-                  <input v-model="tlsCaFile" class="form-input" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('ca')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsCaFile" :placeholder="t('dialog.caFilePlaceholder')" @browse="pickFile('ca')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.clientCert') }}
-                <div class="file-row">
-                  <input v-model="tlsCertFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('cert')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsCertFile" :placeholder="t('dialog.clientCertPlaceholder')" @browse="pickFile('cert')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.clientKey') }}
-                <div class="file-row">
-                  <input v-model="tlsKeyFile" class="form-input" type="text" :placeholder="t('dialog.clientCertPlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('key')">...</button>
-                </div>
-              </label>
-              <label class="form-label">
+                <PathField v-model="tlsKeyFile" :placeholder="t('dialog.clientKeyPlaceholder')" @browse="pickFile('key')" />
+              </div>
+              <div class="form-label">
                 {{ t('dialog.pkcs12File') }}
-                <div class="file-row">
-                  <input v-model="tlsPkcs12File" class="form-input" type="text" :placeholder="t('dialog.pkcs12FilePlaceholder')" />
-                  <button type="button" class="tool-btn" @click="pickFile('pkcs12')">...</button>
-                </div>
-              </label>
+                <PathField v-model="tlsPkcs12File" :placeholder="t('dialog.pkcs12FilePlaceholder')" @browse="pickFile('pkcs12')" />
+              </div>
               <label class="form-label" v-if="tlsPkcs12File">
                 {{ t('dialog.pkcs12Password') }}
                 <input v-model="tlsPkcs12Password" class="form-input" type="password" :placeholder="t('dialog.passwordPlaceholder')" />

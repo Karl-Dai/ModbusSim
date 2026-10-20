@@ -2,8 +2,7 @@
 import { vModal } from 'shared-frontend'
 import { ref, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { open } from '@tauri-apps/plugin-dialog'
-import { useI18n, showAlert } from 'shared-frontend'
+import { useI18n, showAlert, PathField } from 'shared-frontend'
 
 const { t } = useI18n()
 
@@ -66,13 +65,14 @@ async function refreshSerialPorts() {
 
 async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
   try {
-    const path = await open({
+    // Goes through a custom command so macOS shows a free-standing (movable)
+    // panel instead of a window sheet.
+    const p = await invoke<string | null>('pick_certificate_file', {
       filters: target === 'pkcs12'
-        ? [{ name: 'PKCS#12', extensions: ['p12', 'pfx'] }]
-        : [{ name: 'PEM Certificate', extensions: ['pem', 'crt', 'key'] }],
+        ? [['PKCS#12', ['p12', 'pfx']]]
+        : [['PEM Certificate', ['pem', 'crt', 'key']]],
     })
-    if (!path) return
-    const p = path as string
+    if (!p) return
     if (target === 'cert') tlsCertFile.value = p
     else if (target === 'key') tlsKeyFile.value = p
     else if (target === 'ca') tlsCaFile.value = p
@@ -172,24 +172,15 @@ async function submit() {
           <template v-if="useTls">
             <div class="modal-field">
               <label>{{ t('dialog.serverCert') }}</label>
-              <div class="file-row">
-                <input v-model="tlsCertFile" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                <button class="tool-btn" @click="pickFile('cert')">...</button>
-              </div>
+              <PathField v-model="tlsCertFile" :placeholder="t('dialog.serverCertPlaceholder')" @browse="pickFile('cert')" />
             </div>
             <div class="modal-field">
               <label>{{ t('dialog.serverKey') }}</label>
-              <div class="file-row">
-                <input v-model="tlsKeyFile" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                <button class="tool-btn" @click="pickFile('key')">...</button>
-              </div>
+              <PathField v-model="tlsKeyFile" :placeholder="t('dialog.serverKeyPlaceholder')" @browse="pickFile('key')" />
             </div>
             <div class="modal-field">
               <label>{{ t('dialog.pkcs12File') }}</label>
-              <div class="file-row">
-                <input v-model="tlsPkcs12File" type="text" :placeholder="t('dialog.pkcs12FilePlaceholder')" />
-                <button class="tool-btn" @click="pickFile('pkcs12')">...</button>
-              </div>
+              <PathField v-model="tlsPkcs12File" :placeholder="t('dialog.pkcs12FilePlaceholder')" @browse="pickFile('pkcs12')" />
             </div>
             <div class="modal-field" v-if="tlsPkcs12File">
               <label>{{ t('dialog.pkcs12Password') }}</label>
@@ -202,10 +193,7 @@ async function submit() {
             </div>
             <div class="modal-field" v-if="tlsRequireClientCert">
               <label>{{ t('dialog.caFileClient') }}</label>
-              <div class="file-row">
-                <input v-model="tlsCaFile" type="text" :placeholder="t('dialog.caFilePlaceholder')" />
-                <button class="tool-btn" @click="pickFile('ca')">...</button>
-              </div>
+              <PathField v-model="tlsCaFile" :placeholder="t('dialog.caFilePlaceholder')" @browse="pickFile('ca')" />
             </div>
           </template>
         </template>
@@ -289,10 +277,11 @@ async function submit() {
 .modal-field { margin-bottom: 14px; }
 .modal-field label { display: block; font-size: 12px; color: var(--c-subtext0); margin-bottom: 6px; }
 .modal-field input[type="number"], .modal-field input[type="text"], .modal-field input[type="password"] {
+  box-sizing: border-box;
   width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none;
 }
 .modal-field input:focus { border-color: var(--c-blue); }
-.form-select { width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none; }
+.form-select { box-sizing: border-box; width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none; }
 .form-select:focus { border-color: var(--c-blue); }
 .file-row { display: flex; gap: 4px; }
 .file-row > input, .file-row > select { flex: 1; }

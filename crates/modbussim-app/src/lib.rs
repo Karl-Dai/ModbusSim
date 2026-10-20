@@ -51,6 +51,7 @@ pub fn run() {
             commands::list_registers,
             commands::export_registers,
             commands::save_text_export,
+            commands::pick_certificate_file,
             commands::import_registers,
             // Log commands
             commands::get_communication_logs,
