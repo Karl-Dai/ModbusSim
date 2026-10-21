@@ -1,0 +1,2 @@
+# Protocol explanation snapshots are compared byte-for-byte on every OS.
+go/internal/explain/testdata/** text eol=lf
