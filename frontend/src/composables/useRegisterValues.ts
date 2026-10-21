@@ -1,28 +1,27 @@
 import { ref, onUnmounted, watch, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import * as App from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
+type UnlistenFn = () => void
 import type { RegisterDef } from './useRegisterFormat'
 
 const CHANGE_HIGHLIGHT_MS = 1500
 
-interface RowValue { address: number; value: number }
-
 interface RegisterChangePayload {
-  slave_id: number
-  register_type: string
-  address: number
-  value: number
+  SlaveID: number
+  RegisterType: string
+  Address: number
+  Value: number
 }
 
 interface RegisterValueEvent {
-  connection_id: string
-  changes: RegisterChangePayload[]
+  ConnectionID: string
+  Changes: RegisterChangePayload[]
 }
 
 /**
  * Loads a slave's register definitions and values, then keeps them live by
  * listening to backend `register-value-changed` events (emitted both by the
- * Tauri write_register command and by external master writes routed through
+ * bound WriteRegister method and by external master writes routed through
  * the slave protocol layer). Bulk refreshes still happen on demand via
  * `refreshValues`.
  */
@@ -73,21 +72,15 @@ export function useRegisterValues(
     error.value = null
     loadDirtyKeys = new Set()
     try {
-      const defs = await invoke<RegisterDef[]>('list_registers', {
-        connectionId: connId,
-        slaveId,
-        registerType: selectedRegisterType.value,
-      })
+      const defs = await App.ListRegisters(connId, slaveId, selectedRegisterType.value ?? '')
       if (seq !== loadSeq) return
-      registers.value = defs.map(def => ({ ...def, data_type: def.data_type.replace(/^u_int/, 'uint') }))
+      registers.value = defs
 
-      const types = Array.from(new Set(defs.map(d => d.register_type)))
+      const types = Array.from(new Set(defs.map(d => d.RegisterType)))
       const values: Record<string, number> = {}
       await Promise.all(types.map(async (rt) => {
-        const rows = await invoke<RowValue[]>('read_registers_bulk', {
-          connectionId: connId, slaveId, registerType: rt,
-        })
-        for (const r of rows) values[`${rt}-${r.address}`] = r.value
+        const rows = await App.ReadRegistersBulk(connId, slaveId, rt)
+        for (const r of rows) values[`${rt}-${r.Address}`] = r.Value
       }))
       if (seq !== loadSeq) return
       const dirty = loadDirtyKeys
@@ -116,21 +109,17 @@ export function useRegisterValues(
     const connId = selectedConnectionId.value
     const slaveId = selectedSlaveId.value
     const seq = loadSeq
-    const types = Array.from(new Set(registers.value.map(r => r.register_type)))
+    const types = Array.from(new Set(registers.value.map(r => r.RegisterType)))
     try {
       const results = await Promise.all(types.map(rt =>
-        invoke<RowValue[]>('read_registers_bulk', {
-          connectionId: connId,
-          slaveId,
-          registerType: rt,
-        }).then(rows => ({ rt, rows }))
+        App.ReadRegistersBulk(connId, slaveId, rt).then(rows => ({ rt, rows }))
       ))
       if (seq !== loadSeq || connId !== selectedConnectionId.value || slaveId !== selectedSlaveId.value) return
       for (const { rt, rows } of results) {
         for (const r of rows) {
-          const k = `${rt}-${r.address}`
-          if (registerValues.value[k] !== r.value) {
-            registerValues.value[k] = r.value
+          const k = `${rt}-${r.Address}`
+          if (registerValues.value[k] !== r.Value) {
+            registerValues.value[k] = r.Value
             markChanged(k)
           }
         }
@@ -139,14 +128,14 @@ export function useRegisterValues(
   }
 
   function applyEvent(payload: RegisterValueEvent) {
-    if (payload.connection_id !== selectedConnectionId.value) return
+    if (payload.ConnectionID !== selectedConnectionId.value) return
     const slaveId = selectedSlaveId.value
-    for (const change of payload.changes) {
-      if (change.slave_id !== slaveId) continue
-      const key = `${change.register_type}-${change.address}`
+    for (const change of payload.Changes) {
+      if (change.SlaveID !== slaveId) continue
+      const key = `${change.RegisterType}-${change.Address}`
       if (loadDirtyKeys) loadDirtyKeys.add(key)
-      if (registerValues.value[key] !== change.value) {
-        registerValues.value[key] = change.value
+      if (registerValues.value[key] !== change.Value) {
+        registerValues.value[key] = change.Value
         markChanged(key)
       }
     }
@@ -154,7 +143,7 @@ export function useRegisterValues(
 
   async function startListening() {
     if (unlisten) return
-    unlisten = await listen<RegisterValueEvent>('register-value-changed', (e) => applyEvent(e.payload))
+    unlisten = EventsOn('register-value-changed', (event: RegisterValueEvent) => applyEvent(event))
   }
 
   function stopListening() {

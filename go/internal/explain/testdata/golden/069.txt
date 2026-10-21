@@ -1,0 +1,24 @@
+The master asks slave 1 to "Read Holding Registers": read 1 register starting from 40001
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 99  Protocol identifier     standard Modbus uses 0x0000
+00 06  Length                  6 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+03     Function code           0x03 = Read Holding Registers
+00 00  Start address           protocol address 0, PLC address 40001
+00 01  Read quantity           read 1 register
+
+── Notes ──
+The protocol identifier is 0x0099; standard Modbus TCP uses 0x0000
+
+── Technical details ──
+Transport: Modbus TCP (12 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0099
+Length field: 6 (6 bytes actually follow)
+Unit ID: 1
+Function: 0x03 (Read Holding Registers)
+Start address: 0 (PLC 40001)
+Quantity: 1
+PDU: 03 00 00 00 01

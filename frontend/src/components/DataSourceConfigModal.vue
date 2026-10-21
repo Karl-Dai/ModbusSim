@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { computed, ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { showAlert, useI18n } from 'shared-frontend'
 import type { DataSource, RegisterDef } from '../composables/useRegisterFormat'
 
@@ -14,7 +14,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; saved: [] }>()
 
-type SourceType = DataSource['type']
+type SourceType = DataSource['Type']
 const sourceType = ref<SourceType>('fixed')
 const updateIntervalMs = ref(1000)
 const value = ref(0)
@@ -34,43 +34,43 @@ const loopPlayback = ref(true)
 const title = computed(() => {
   const register = props.register
   return register
-    ? `${t('dataSource.title')} — ${register.register_type} @ ${register.address}`
+    ? `${t('dataSource.title')} — ${register.RegisterType} @ ${register.Address}`
     : t('dataSource.title')
 })
-const isConfigured = computed(() => !!props.register?.data_source)
+const isConfigured = computed(() => !!props.register?.DataSource)
 
 watch(
   () => [props.show, props.register],
   () => {
     if (!props.show) return
-    const config = props.register?.data_source
-    updateIntervalMs.value = config?.update_interval_ms ?? 1000
-    const source = config?.source
-    sourceType.value = source?.type ?? 'fixed'
+    const config = props.register?.DataSource
+    updateIntervalMs.value = config?.UpdateIntervalMS ?? 1000
+    const source = config?.Source
+    sourceType.value = source?.Type ?? 'fixed'
     if (!source) return
-    switch (source.type) {
-      case 'fixed': value.value = source.value; break
-      case 'random': min.value = source.min; max.value = source.max; break
+    switch (source.Type) {
+      case 'fixed': value.value = source.Value ?? 0; break
+      case 'random': min.value = source.Min ?? 0; max.value = source.Max ?? 100; break
       case 'sine':
-        amplitude.value = source.amplitude
-        frequency.value = source.frequency
-        offset.value = source.offset
-        phase.value = source.phase
+        amplitude.value = source.Amplitude ?? 100
+        frequency.value = source.Frequency ?? 1
+        offset.value = source.Offset ?? 0
+        phase.value = source.Phase ?? 0
         break
       case 'sawtooth':
       case 'triangle':
-        min.value = source.min
-        max.value = source.max
-        periodMs.value = source.period_ms
+        min.value = source.Min ?? 0
+        max.value = source.Max ?? 100
+        periodMs.value = source.PeriodMS ?? 1000
         break
       case 'counter':
-        start.value = source.start
-        step.value = source.step
-        wrap.value = source.wrap
+        start.value = source.Start ?? 0
+        step.value = source.Step ?? 1
+        wrap.value = source.Wrap ?? true
         break
       case 'csv_playback':
-        csvValues.value = source.values.join(', ')
-        loopPlayback.value = source.loop_playback
+        csvValues.value = (source.Values ?? []).join(', ')
+        loopPlayback.value = source.LoopPlayback ?? true
         break
     }
   },
@@ -84,32 +84,33 @@ function validWord(input: number): boolean {
 function buildSource(): DataSource | null {
   switch (sourceType.value) {
     case 'fixed':
-      return validWord(value.value) ? { type: 'fixed', value: value.value } : null
+      return validWord(value.value) ? { Type: 'fixed', Value: value.value } : null
     case 'random':
       return validWord(min.value) && validWord(max.value) && min.value <= max.value
-        ? { type: 'random', min: min.value, max: max.value }
+        ? { Type: 'random', Min: min.value, Max: max.value }
         : null
     case 'sine':
       return [amplitude.value, frequency.value, offset.value, phase.value].every(Number.isFinite)
         && frequency.value >= 0
-        ? { type: 'sine', amplitude: amplitude.value, frequency: frequency.value, offset: offset.value, phase: phase.value }
+        ? { Type: 'sine', Amplitude: amplitude.value, Frequency: frequency.value, Offset: offset.value, Phase: phase.value }
         : null
     case 'sawtooth':
     case 'triangle':
       return validWord(min.value) && validWord(max.value) && min.value <= max.value
         && Number.isInteger(periodMs.value) && periodMs.value >= (sourceType.value === 'triangle' ? 2 : 1)
-        ? { type: sourceType.value, min: min.value, max: max.value, period_ms: periodMs.value }
+        ? { Type: sourceType.value, Min: min.value, Max: max.value, PeriodMS: periodMs.value }
         : null
     case 'counter':
       return validWord(start.value) && Number.isInteger(step.value) && step.value >= -32768 && step.value <= 32767
-        ? { type: 'counter', start: start.value, step: step.value, wrap: wrap.value }
+        ? { Type: 'counter', Start: start.value, Step: step.value, Wrap: wrap.value }
         : null
     case 'csv_playback': {
       const values = csvValues.value.split(/[\s,;]+/).filter(Boolean).map(Number)
       return values.length > 0 && values.every(validWord)
-        ? { type: 'csv_playback', values, loop_playback: loopPlayback.value }
+        ? { Type: 'csv_playback', Values: values, LoopPlayback: loopPlayback.value }
         : null
     }
+    default: return null
   }
 }
 
@@ -121,16 +122,14 @@ async function save() {
     return
   }
   try {
-    await invoke('set_data_source', {
-      request: {
-        connection_id: props.connectionId,
-        slave_id: props.slaveId,
-        register_type: props.register.register_type,
-        address: props.register.address,
-        source,
-        update_interval_ms: updateIntervalMs.value,
-      },
-    })
+    await App.SetDataSource({
+        ConnectionID: props.connectionId,
+        SlaveID: props.slaveId,
+        RegisterType: props.register.RegisterType,
+        Address: props.register.Address,
+        Source: source,
+        UpdateIntervalMS: updateIntervalMs.value,
+      })
     emit('saved')
     emit('close')
   } catch (error) {
@@ -141,12 +140,7 @@ async function save() {
 async function clear() {
   if (!props.register) return
   try {
-    await invoke('remove_data_source', {
-      connectionId: props.connectionId,
-      slaveId: props.slaveId,
-      registerType: props.register.register_type,
-      address: props.register.address,
-    })
+    await App.RemoveDataSource(props.connectionId, props.slaveId, props.register.RegisterType, props.register.Address)
     emit('saved')
     emit('close')
   } catch (error) {

@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20·%20macOS%20·%20Linux-informational)]()
 
-Built with **Rust** · **Tauri 2** · **Vue 3**
+Built with **Go** · **Wails 2** · **Vue 3**
 
 **English** · [中文](README_CN.md)
 
@@ -30,7 +30,7 @@ Testing a Modbus integration usually means wiring up a real PLC or borrowing a m
 - 🔌 **Five transports, one core** — TCP, TCP+TLS, RTU, ASCII and RTU-over-TCP, covering function codes FC01–FC06 / FC15 / FC16.
 - 📈 **Built-in data simulation** — every register can run its own data source (Fixed / Random / Sine / Sawtooth / Triangle / Counter / CSV playback) or an independent periodic mutation schedule; 20,000+ registers with virtual scrolling.
 - 🌐 **Network reach** — route Master TCP, TCP+TLS and RTU-over-TCP connections through a SOCKS5 proxy with optional authentication and proxy-side DNS.
-- 🖥️ **Native desktop app** — small Rust + Tauri binaries for Windows, macOS and Linux, with in-app auto-update.
+- 🖥️ **Native desktop app** — small Go + Wails binaries for Windows, macOS and Linux, with standalone desktop bundles and manual release downloads.
 - 🌏 **Bilingual UI** — full English / 简体中文, switchable at runtime.
 
 ## Table of Contents
@@ -46,7 +46,6 @@ Testing a Modbus integration usually means wiring up a real PLC or borrowing a m
 - [Contributing](#contributing)
 - [Changelog](#changelog)
 - [macOS First Launch](#macos-first-launch)
-- [Anonymous Usage Analytics](#anonymous-usage-analytics)
 - [License](#license)
 
 ## Screenshots
@@ -97,7 +96,7 @@ The bottom log panel records every request/response pair — direction, function
 
 - **Multi-transport** — TCP, TCP+TLS, RTU (serial), ASCII (serial), RTU-over-TCP
 - **Modbus TCP over TLS** — TLS 1.2+ encryption, PEM and PKCS#12 certificate formats, accept-invalid-certs mode for self-signed certificate testing
-- **SOCKS5 proxy** — route TCP, TCP+TLS and RTU-over-TCP connections through a SOCKS5 proxy (IPv4/IPv6) with optional username/password authentication and proxy-side DNS resolution; credentials are redacted from Rust debug output and the UI explains the RFC 1929 / project-file security boundary
+- **SOCKS5 proxy** — route TCP, TCP+TLS and RTU-over-TCP connections through a SOCKS5 proxy (IPv4/IPv6) with optional username/password authentication and proxy-side DNS resolution; credentials are redacted from Go logs and the UI explains the RFC 1929 / project-file security boundary
 - **Scan groups** — periodic polling with custom intervals per register group, per-group slave ID override
 - **Device discovery** — slave ID scan (1–247), register address scan, auto-add discovered devices to scan groups
 - **Multi-format data view** — Unsigned, Signed, Hex, Binary, Float32 (AB CD / CD AB), virtual scrolling
@@ -106,34 +105,26 @@ The bottom log panel records every request/response pair — direction, function
 - **Auto-reconnect** — configurable reconnection with exponential backoff (1s → 2s → 4s → … → 30s max)
 - **Project files** — save/load connection and scan group configurations
 - **Connection-on-scan** — auto-prompt to scan devices after a successful connection
-- **In-app auto-update** — silently downloads and verifies signed updates in the background, then offers install now / skip this version / install on next launch (6 h check throttle, "later" snoozes 24 h)
+- **Version upgrades** — open Releases from Help and download the Go/Wails version manually.
 
 ### 🧩 Shared Architecture
 
 - **Unified error system** — structured `ModbusError` with categorized error types (connection/protocol/application), serialized to JSON for frontend parsing
-- **Shared Vue components** — common composables, types and i18n shared between both Tauri apps via the `shared-frontend` npm workspace
+- **Shared Vue components** — common composables, types and i18n shared between both Wails apps via the `shared-frontend` npm workspace
 
 ## Download
 
-Pre-built installers for every platform are on the **[Releases page](https://github.com/Karl-Dai/ModbusSim/releases)**.
+Download ModbusSlave or ModbusMaster from the [latest Release](https://github.com/Karl-Dai/ModbusSim/releases/latest).
 
-| Platform | Installer |
-|----------|-----------|
-| Windows  | `.msi` / `.exe` (NSIS) |
-| macOS    | `.dmg` (Apple Silicon & Intel) |
-| Linux    | `.AppImage` / `.deb` / `.rpm` |
+| Platform | Bundle |
+|---|---|
+| macOS 13+ (Apple Silicon / Intel) | Universal `.zip`; extract and move the `.app` to Applications |
+| Windows x64 / ARM64 | Standalone `.exe` for the matching architecture; requires WebView2 |
+| Linux x64 | `.tar.gz`; binary requires GTK3 and WebKitGTK 4.0 |
 
-Both apps **auto-update** from GitHub Releases since v0.16.0. Since v0.17.2 updates download and verify in the background first, then offer install now / skip this version / install on next launch. macOS users need [one extra step on first launch](#macos-first-launch).
+The Go/Wails release replaces Rust/Tauri and requires manual installation. Verify downloads with `SHA256SUMS` or `release-manifest.json`; the previous updater cannot install these bundles.
 
-> **Note:** As of v0.16, the native egui edition (assets with the `-egui-` suffix) is discontinued. Please migrate to the Tauri installers listed above.
-
-### China mirror
-
-Users in mainland China may have unstable access to GitHub Releases. Recommended mirror for direct installer downloads:
-
-- <https://ghfast.top/https://github.com/Karl-Dai/ModbusSim/releases/latest>
-
-Starting from v0.16.0, the in-app updater automatically falls back through multiple proxies — no manual action needed. However, **the very first upgrade from a pre-0.16 build** has no in-app updater at all; download and install the new version once via the mirror above, after which updates route through proxies automatically.
+Legacy v1 projects can be imported. Go saves v2 projects that older Rust releases cannot read, so keep your original backup. See the [migration guide](docs/go-migration.md).
 
 ## Supported Function Codes
 
@@ -160,43 +151,30 @@ Starting from v0.16.0, the in-app updater automatically falls back through multi
 
 ## Build from Source
 
-### Prerequisites
+Install Go 1.27+, Node.js 22+ and the native Wails dependencies for your platform. Ubuntu 22.04 requires `libgtk-3-dev libwebkit2gtk-4.0-dev`; macOS requires Xcode Command Line Tools.
 
-- [Rust](https://rustup.rs/) 1.77+
-- [Node.js](https://nodejs.org/) 18+
-- [Tauri CLI](https://tauri.app/) — `cargo install tauri-cli`
-
-### Steps
-
-```bash
-# install frontend dependencies (npm workspaces — run once at the repo root)
-npm install
-
-# run the Slave
-cd crates/modbussim-app && cargo tauri dev
-
-# run the Master
-cd crates/modbusmaster-app && cargo tauri dev
+```sh
+npm ci --ignore-scripts
+npm run dev:slave:go
+npm run dev:master:go
+# Production bundles
+npm run build:slave:go
+npm run build:master:go
+# Regenerate changed bindings
+npm run bindings:slave:go
+npm run bindings:master:go
+# Validation
+npm test --workspace shared-frontend
+npm run test:go
 ```
 
-### Build installers
-
-```bash
-cd crates/modbussim-app && cargo tauri build
-cd crates/modbusmaster-app && cargo tauri build
-```
-
-### Run tests
-
-```bash
-cargo test --workspace
-```
+The scripts use Wails v2.14.0 and supply the macOS CGO flags. See [Go development](go/README.md).
 
 ## Quick Start (Tutorial)
 
 A full round-trip in six steps — drive the simulated Slave from the Master, no hardware required. (Screenshots show the Chinese UI; flip to English any time with the **中 / EN** toggle.)
 
-> **Install first:** grab the installer for your platform from the [Releases page](#download), or run from source (`cargo tauri dev`). Open **both** `ModbusSlave` and `ModbusMaster`.
+> **Install first:** grab the installer for your platform from the [Releases page](#download), or run from source (`npm run dev:slave:go` / `npm run dev:master:go`). Open **both** `ModbusSlave` and `ModbusMaster`.
 
 ### Step 1 · Slave — create a server with registers
 
@@ -242,44 +220,21 @@ That's the full round-trip — server, registers, polling, simulation, write-bac
 
 ## Architecture
 
-```
-ModbusSim/
-├── crates/
-│   ├── modbussim-core/            # Core library: protocol, transports, registers, logging
-│   │   └── src/
-│   │       ├── slave.rs / master.rs           # Slave & Master connection (TCP/RTU/ASCII/RtuOverTcp dispatch)
-│   │       ├── frame.rs / pdu.rs / parse.rs   # RTU/ASCII frame encode/decode, Modbus PDU parsing
-│   │       ├── mbap.rs                        # MBAP frame encoding/decoding (for TLS mode)
-│   │       ├── tls_slave.rs / tls_master.rs   # TLS-enabled Modbus TCP slave server & master client
-│   │       ├── ascii_slave.rs / ascii_master.rs       # ASCII serial transport
-│   │       ├── rtu_slave.rs / rtu_master.rs           # RTU serial transport
-│   │       ├── rtu_tcp_slave.rs / rtu_tcp_master.rs   # RTU-over-TCP transport
-│   │       ├── socks5.rs                      # SOCKS5 CONNECT proxying for Master network transports
-│   │       ├── transport.rs                   # Transport enum, serial config, TLS config, port enumeration
-│   │       ├── register.rs                    # Register types, encoding/decoding (incl. wide 32-bit values)
-│   │       ├── data_source.rs                 # Per-point data sources (sine, counter, CSV playback…)
-│   │       ├── mutation.rs                    # Per-point periodic mutation schedules
-│   │       ├── reconnect.rs                   # Reconnect policy with exponential backoff
-│   │       ├── error.rs                       # Unified ModbusError enum
-│   │       ├── project.rs                     # .modbusproj file save/load/migrate
-│   │       ├── config.rs                      # Connection & scan-group configuration types
-│   │       └── log_collector.rs / log_entry.rs / log_helpers.rs  # Thread-safe log ring buffer
-│   ├── modbussim-app/             # Slave Tauri application — ModbusSlave
-│   └── modbusmaster-app/          # Master Tauri application — ModbusMaster
-├── frontend/                      # Slave Vue 3 frontend
-├── master-frontend/               # Master Vue 3 frontend
-└── shared-frontend/               # Shared Vue components, composables, i18n
+```text
+go/internal/             Protocols, transports, projects, simulation and state
+go/cmd/slavegui/          Slave Wails desktop host
+go/cmd/mastergui/         Master Wails desktop host
+frontend/                Slave Vue frontend
+master-frontend/         Master Vue frontend
+shared-frontend/         Themes, translations and shared components
+scripts/                 Go/Wails versioning and artifact validation
 ```
 
-| Layer | Stack |
-|-------|-------|
-| Backend | Rust, Tokio (async runtime), [tokio-modbus](https://github.com/slowtec/tokio-modbus), [tokio-serial](https://github.com/berkowski/tokio-serial), [native-tls](https://crates.io/crates/native-tls) (macOS Security.framework / Linux OpenSSL / Windows SChannel), [serialport](https://crates.io/crates/serialport) |
-| Frontend | Vue 3, TypeScript, Vite, [@tanstack/vue-virtual](https://tanstack.com/virtual) |
-| Desktop | Tauri 2 |
+Go owns protocol behavior and application state; Vue calls generated Wails bindings. The former Rust implementation remains available in Git tags v0.17.8 and earlier.
 
 ## Contributing
 
-Issues and pull requests are welcome. For a code change, please make sure `cargo test --workspace` passes (plus the frontend type checks) before opening a PR.
+Issues and pull requests are welcome. For a code change, please make sure `npm run test:go` passes (plus the frontend type checks) before opening a PR.
 
 ## Changelog
 
@@ -312,9 +267,7 @@ Strips the quarantine flag so macOS stops blocking.
 
 </details>
 
-## Anonymous Usage Analytics
 
-ModbusSim sends an anonymous `app_started` event on launch via [Aptabase](https://aptabase.com), so the author can see install counts, active usage, and version/OS distribution. It collects **no personal data** — only app version, OS, locale, and an approximate country derived from your IP (the IP itself is never stored). You can turn it off anytime via the ⓘ "About" popover in the toolbar.
 
 ## License
 

@@ -1,0 +1,2 @@
+!!ERROR!!
+Unsupported transport: rtu-tcp (use auto, tcp, rtu or ascii)

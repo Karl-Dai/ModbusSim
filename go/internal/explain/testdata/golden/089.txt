@@ -1,0 +1,25 @@
+slave 1 replied to "Read Holding Registers": 40001 = 10 (0x000A)
+
+── Data details ──
+40001 = 10 (0x000A)
+Note: the response frame carries no start address; numbering starts at 40001 by default — the real start address comes from the matching request
+
+── Byte-by-byte ──
+01     Slave address  device 1
+03     Function code  0x03 = Read Holding Registers
+02     Byte count     2 data bytes
+00 0A  Data           every 2 bytes are one register value
+38 43  CRC check      CRC16 check passed
+
+── Notes ──
+Auto-detected as Modbus RTU: CRC16 check passed
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (7 bytes total)
+Slave address: 1
+Function: 0x03 (Read Holding Registers)
+Byte count: 2
+Data: 00 0A
+CRC16: 0x4338 (wire order 38 43, passed)
+PDU: 03 02 00 0A

@@ -1,0 +1,2 @@
+!!ERROR!!
+Frame too short: Modbus TCP needs at least 8 bytes (7-byte MBAP header + function code), got 7

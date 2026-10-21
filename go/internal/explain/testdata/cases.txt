@@ -1,0 +1,140 @@
+00 01 00 00 00 06 01 03 00 00 00 01|auto|auto|zh
+00 01 00 00 00 06 01 03 00 00 00 01|auto|auto|en
+00 01 00 00 00 06 01 03 00 00 00 01|tcp|request|zh
+00 01 00 00 00 06 01 03 00 00 00 01|tcp|request|en
+00 01 00 00 00 08 01 03 00 02 00 0A 01 02|auto|auto|zh
+00 01 00 00 00 08 01 03 00 02 00 0A 01 02|auto|auto|en
+00 01 00 00 00 06 01 03 03 00 0A 0B|auto|auto|zh
+00 01 00 00 00 06 01 03 03 00 0A 0B|auto|auto|en
+00 01 00 00 00 05 01 04 02 12 34|tcp|auto|zh
+00 01 00 00 00 05 01 04 02 12 34|tcp|auto|en
+00 01 00 00 00 06 01 01 00 00 00 10|tcp|auto|zh
+00 01 00 00 00 06 01 01 00 00 00 10|tcp|auto|en
+00 01 00 00 00 05 01 01 02 05 0A|tcp|auto|zh
+00 01 00 00 00 05 01 01 02 05 0A|tcp|auto|en
+00 01 00 00 00 04 01 02 01 05|tcp|auto|zh
+00 01 00 00 00 04 01 02 01 05|tcp|auto|en
+00 01 00 00 00 06 01 05 00 00 FF 00|tcp|request|zh
+00 01 00 00 00 06 01 05 00 00 FF 00|tcp|request|en
+00 01 00 00 00 06 01 05 00 03 12 34|tcp|request|zh
+00 01 00 00 00 06 01 05 00 03 12 34|tcp|request|en
+00 01 00 00 00 06 01 06 00 01 00 64|tcp|request|zh
+00 01 00 00 00 06 01 06 00 01 00 64|tcp|request|en
+00 01 00 00 00 06 01 06 00 01 00 64|tcp|response|zh
+00 01 00 00 00 06 01 06 00 01 00 64|tcp|response|en
+00 01 00 00 00 08 01 0F 00 00 00 03 01 05|tcp|auto|zh
+00 01 00 00 00 08 01 0F 00 00 00 03 01 05|tcp|auto|en
+00 01 00 00 00 06 01 0F 00 00 00 03|tcp|auto|zh
+00 01 00 00 00 06 01 0F 00 00 00 03|tcp|auto|en
+00 01 00 00 00 09 01 0F 00 00 00 03 02 05 00|tcp|request|zh
+00 01 00 00 00 09 01 0F 00 00 00 03 02 05 00|tcp|request|en
+00 01 00 00 00 0B 01 10 00 00 00 02 04 00 0A 01 01|tcp|auto|zh
+00 01 00 00 00 0B 01 10 00 00 00 02 04 00 0A 01 01|tcp|auto|en
+00 01 00 00 00 06 01 10 00 00 00 02|tcp|auto|zh
+00 01 00 00 00 06 01 10 00 00 00 02|tcp|auto|en
+00 01 00 00 00 0D 01 10 00 00 00 02 06 00 0A 01 01 00 00|tcp|request|zh
+00 01 00 00 00 0D 01 10 00 00 00 02 06 00 0A 01 01 00 00|tcp|request|en
+00 01 00 00 00 06 01 03 00 00 00 FA|tcp|auto|zh
+00 01 00 00 00 06 01 03 00 00 00 FA|tcp|auto|en
+00 01 00 00 00 06 01 03 00 00 00 00|tcp|auto|zh
+00 01 00 00 00 06 01 03 00 00 00 00|tcp|auto|en
+00 01 00 00 00 05 01 03 04 00 0A|tcp|auto|zh
+00 01 00 00 00 05 01 03 04 00 0A|tcp|auto|en
+00 01 00 00 00 03 01 03 00|tcp|auto|zh
+00 01 00 00 00 03 01 03 00|tcp|auto|en
+00 01 00 00 00 02 01 03|tcp|auto|zh
+00 01 00 00 00 02 01 03|tcp|auto|en
+00 01 00 00 00 03 01 83 02|tcp|auto|zh
+00 01 00 00 00 03 01 83 02|tcp|auto|en
+00 01 00 00 00 03 01 83 7F|tcp|auto|zh
+00 01 00 00 00 03 01 83 7F|tcp|auto|en
+00 01 00 00 00 02 01 83|tcp|auto|zh
+00 01 00 00 00 02 01 83|tcp|auto|en
+00 01 00 00 00 04 01 83 02 00|tcp|auto|zh
+00 01 00 00 00 04 01 83 02 00|tcp|auto|en
+00 01 00 00 00 03 01 81 0A|tcp|response|zh
+00 01 00 00 00 03 01 81 0A|tcp|response|en
+00 01 00 00 00 04 01 2B 00 01|tcp|auto|zh
+00 01 00 00 00 04 01 2B 00 01|tcp|auto|en
+00 01 00 00 00 04 01 2B 00 01|tcp|response|zh
+00 01 00 00 00 04 01 2B 00 01|tcp|response|en
+00 01 00 00 00 06 01 2B 00 00 00 01|tcp|auto|zh
+00 01 00 00 00 06 01 2B 00 00 00 01|tcp|auto|en
+00 01 00 00 00 06 00 03 00 00 00 01|tcp|auto|zh
+00 01 00 00 00 06 00 03 00 00 00 01|tcp|auto|en
+00 01 00 00 00 07 01 03 00 00 00 01|tcp|auto|zh
+00 01 00 00 00 07 01 03 00 00 00 01|tcp|auto|en
+00 01 00 00 00 05 01 03 00 00 00 01|tcp|auto|zh
+00 01 00 00 00 05 01 03 00 00 00 01|tcp|auto|en
+00 01 00 99 00 06 01 03 00 00 00 01|tcp|auto|zh
+00 01 00 99 00 06 01 03 00 00 00 01|tcp|auto|en
+00 01 00 00 00 06 01|tcp|auto|zh
+00 01 00 00 00 06 01|tcp|auto|en
+00 01 00 00 00 06 01 03 00 00 00|tcp|auto|zh
+00 01 00 00 00 06 01 03 00 00 00|tcp|auto|en
+00 01 00 00 00 06 01 0Z 00 00 00 01|tcp|auto|zh
+00 01 00 00 00 06 01 0Z 00 00 00 01|tcp|auto|en
+|tcp|auto|zh
+|tcp|auto|en
+01 03 00 00 00 01 FF FF|auto|auto|zh
+01 03 00 00 00 01 FF FF|auto|auto|en
+00 01 00 00 00 06 01 03 00 00 00 01|rtu-tcp|auto|zh
+00 01 00 00 00 06 01 03 00 00 00 01|rtu-tcp|auto|en
+00 01 00 00 00 06 01 03 00 00 00 01|tcp|sideways|zh
+00 01 00 00 00 06 01 03 00 00 00 01|tcp|sideways|en
+00 01 00 00 00 06 01 03 00 00 00 01|auto|response|zh
+00 01 00 00 00 06 01 03 00 00 00 01|auto|response|en
+01 03 00 00 00 0A C5 CD|auto|auto|zh
+01 03 00 00 00 0A C5 CD|auto|auto|en
+01 03 02 00 0A 38 43|auto|auto|zh
+01 03 02 00 0A 38 43|auto|auto|en
+01 01 02 05 00 BA AC|rtu|auto|zh
+01 01 02 05 00 BA AC|rtu|auto|en
+01 02 01 05 61 8B|rtu|response|zh
+01 02 01 05 61 8B|rtu|response|en
+01 04 02 12 34 B4 47|rtu|auto|zh
+01 04 02 12 34 B4 47|rtu|auto|en
+01 05 00 00 FF 00 8C 3A|rtu|request|zh
+01 05 00 00 FF 00 8C 3A|rtu|request|en
+01 06 00 01 00 64 D9 E1|rtu|response|zh
+01 06 00 01 00 64 D9 E1|rtu|response|en
+01 0F 00 00 00 03 01 05 4F 54|rtu|auto|zh
+01 0F 00 00 00 03 01 05 4F 54|rtu|auto|en
+01 10 00 00 00 02 04 00 0A 01 01 13 FD|rtu|auto|zh
+01 10 00 00 00 02 04 00 0A 01 01 13 FD|rtu|auto|en
+01 10 00 00 00 02 41 C8|rtu|auto|zh
+01 10 00 00 00 02 41 C8|rtu|auto|en
+01 83 02 C0 F1|rtu|auto|zh
+01 83 02 C0 F1|rtu|auto|en
+01 03 00 00 00 01 00 00|rtu|auto|zh
+01 03 00 00 00 01 00 00|rtu|auto|en
+AA BB|rtu|auto|zh
+AA BB|rtu|auto|en
+01 03 40 21|rtu|auto|zh
+01 03 40 21|rtu|auto|en
+00 03 00 00 00 01 85 DB|rtu|auto|zh
+00 03 00 00 00 01 85 DB|rtu|auto|en
+01 2B 00 01 B0 10|rtu|auto|zh
+01 2B 00 01 B0 10|rtu|auto|en
+:01030000000AF2|ascii|auto|zh
+:01030000000AF2|ascii|auto|en
+:010302000AF0|ascii|auto|zh
+:010302000AF0|ascii|auto|en
+:0101020500F7|ascii|auto|zh
+:0101020500F7|ascii|auto|en
+:01050000FF00FB|ascii|request|zh
+:01050000FF00FB|ascii|request|en
+:01100000000204000A0101DD|ascii|auto|zh
+:01100000000204000A0101DD|ascii|auto|en
+:0183027A|ascii|auto|zh
+:0183027A|ascii|auto|en
+03 00 00 00 0A|ascii|auto|zh
+03 00 00 00 0A|ascii|auto|en
+:010300000|ascii|auto|zh
+:010300000|ascii|auto|en
+:01030000000AFF00|ascii|auto|zh
+:01030000000AFF00|ascii|auto|en
+:010300000000AB|ascii|auto|zh
+:010300000000AB|ascii|auto|en
+:01030000000AF2  |ascii|auto|zh
+:01030000000AF2  |ascii|auto|en

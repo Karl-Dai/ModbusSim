@@ -1,0 +1,24 @@
+slave 1 confirmed: register 40002 is now 100 (0x0064)
+
+── Data details ──
+40002 = 100 (0x0064)
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 06  Length                  6 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+06     Function code           0x06 = Write Single Register
+00 01  Address                 protocol address 1, PLC address 40002
+00 64  Write value             decimal 100, hexadecimal 0x0064
+
+── Technical details ──
+Transport: Modbus TCP (12 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 6 (6 bytes actually follow)
+Unit ID: 1
+Function: 0x06 (Write Single Register)
+Address: 1 (PLC 40002)
+Write value: 100 (0x0064)
+PDU: 06 00 01 00 64

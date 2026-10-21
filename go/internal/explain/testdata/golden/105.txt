@@ -1,0 +1,20 @@
+slave 1 confirmed: wrote 2 registers starting from 40001
+
+── Byte-by-byte ──
+01     Slave address   device 1
+10     Function code   0x10 = Write Multiple Registers
+00 00  Start address   protocol address 0, PLC address 40001
+00 02  Write quantity  successfully wrote 2 registers
+41 C8  CRC check       CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (8 bytes total)
+Slave address: 1
+Function: 0x10 (Write Multiple Registers)
+Start address: 0 (PLC 40001)
+Write quantity: 2
+CRC16: 0xC841 (wire order 41 C8, passed)
+PDU: 10 00 00 00 02

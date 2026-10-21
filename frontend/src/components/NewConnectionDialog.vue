@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import type { project } from "../../wailsjs/go/models"
 import { vModal } from 'shared-frontend'
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { useI18n, showAlert, PathField } from 'shared-frontend'
+import * as App from '../../wailsjs/go/main/App'
+import { PathField, showAlert, useI18n } from 'shared-frontend'
 
 const { t } = useI18n()
 
@@ -20,7 +21,7 @@ const baudRate = ref(9600)
 const dataBits = ref(8)
 const stopBits = ref(1)
 const parityMode = ref('none')
-const serialPorts = ref<{ name: string; description: string; manufacturer: string }[]>([])
+const serialPorts = ref<string[]>([])
 
 const useTls = ref(false)
 const tlsCertFile = ref('')
@@ -57,7 +58,7 @@ watch(transport, (val) => {
 
 async function refreshSerialPorts() {
   try {
-    serialPorts.value = await invoke('list_serial_ports')
+    serialPorts.value = await App.ListSerialPorts()
   } catch (e) {
     await showAlert(String(e))
   }
@@ -65,14 +66,11 @@ async function refreshSerialPorts() {
 
 async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
   try {
-    // Goes through a custom command so macOS shows a free-standing (movable)
-    // panel instead of a window sheet.
-    const p = await invoke<string | null>('pick_certificate_file', {
-      filters: target === 'pkcs12'
-        ? [['PKCS#12', ['p12', 'pfx']]]
-        : [['PEM Certificate', ['pem', 'crt', 'key']]],
-    })
-    if (!p) return
+    const path = await App.OpenFileDialog(target === 'pkcs12'
+        ? [{ Name: 'PKCS#12', Extensions: ['p12', 'pfx'] }]
+        : [{ Name: 'PEM Certificate', Extensions: ['pem', 'crt', 'key'] }])
+    if (!path) return
+    const p = path as string
     if (target === 'cert') tlsCertFile.value = p
     else if (target === 'key') tlsKeyFile.value = p
     else if (target === 'ca') tlsCaFile.value = p
@@ -101,40 +99,21 @@ async function submit() {
     return
   }
 
-  let transportPayload: Record<string, unknown>
-  if (transport.value === 'tcp') {
-    transportPayload = useTls.value ? { type: 'tcp_tls', port: portNum } : { type: 'tcp', port: portNum }
-  } else if (transport.value === 'rtu' || transport.value === 'ascii') {
+  let transportPayload: project.Transport
+  if (transport.value === 'rtu' || transport.value === 'ascii') {
     transportPayload = {
-      type: transport.value,
-      serial_port: serialPort.value,
-      baud_rate: baudRate.value,
-      data_bits: dataBits.value,
-      stop_bits: stopBits.value,
-      parity: parityMode.value,
+      Type: transport.value,
+      Serial: { Port: serialPort.value, BaudRate: baudRate.value, DataBits: dataBits.value, StopBits: stopBits.value, Parity: parityMode.value },
     }
   } else {
-    transportPayload = { type: 'rtu_over_tcp', host: '0.0.0.0', port: portNum }
+    transportPayload = { Type: useTls.value && transport.value === 'tcp' ? 'tcp_tls' : transport.value, Host: '0.0.0.0', Port: portNum }
+    if (transportPayload.Type === 'tcp_tls') transportPayload.ServerTLS = {
+      Enabled: true, CertFile: tlsCertFile.value, KeyFile: tlsKeyFile.value, CAFile: tlsCaFile.value,
+      RequireClientCert: tlsRequireClientCert.value, PKCS12File: tlsPkcs12File.value, PKCS12Password: tlsPkcs12Password.value,
+    }
   }
-
   try {
-    await invoke('create_slave_connection', {
-      request: {
-        transport: transportPayload,
-        init_mode: initMode.value,
-        slave_id: initialSlaveId,
-        name: slaveName.value.trim(),
-        ...(useTls.value ? {
-          use_tls: true,
-          cert_file: tlsCertFile.value || undefined,
-          key_file: tlsKeyFile.value || undefined,
-          ca_file: tlsCaFile.value || undefined,
-          require_client_cert: tlsRequireClientCert.value || undefined,
-          pkcs12_file: tlsPkcs12File.value || undefined,
-          pkcs12_password: tlsPkcs12Password.value || undefined,
-        } : {}),
-      }
-    })
+    await App.CreateConnection({ Transport: transportPayload, InitMode: initMode.value, SlaveID: initialSlaveId, Name: slaveName.value.trim() })
     emit('created')
     emit('close')
   } catch (e) {
@@ -172,11 +151,11 @@ async function submit() {
           <template v-if="useTls">
             <div class="modal-field">
               <label>{{ t('dialog.serverCert') }}</label>
-              <PathField v-model="tlsCertFile" :placeholder="t('dialog.serverCertPlaceholder')" @browse="pickFile('cert')" />
+              <PathField v-model="tlsCertFile" :placeholder="t('dialog.caFilePlaceholder')" @browse="pickFile('cert')" />
             </div>
             <div class="modal-field">
               <label>{{ t('dialog.serverKey') }}</label>
-              <PathField v-model="tlsKeyFile" :placeholder="t('dialog.serverKeyPlaceholder')" @browse="pickFile('key')" />
+              <PathField v-model="tlsKeyFile" :placeholder="t('dialog.caFilePlaceholder')" @browse="pickFile('key')" />
             </div>
             <div class="modal-field">
               <label>{{ t('dialog.pkcs12File') }}</label>
@@ -202,8 +181,8 @@ async function submit() {
             <label>{{ t('dialog.serialPort') }}</label>
             <div class="file-row">
               <select v-model="serialPort" class="form-select">
-                <option v-for="p in serialPorts" :key="p.name" :value="p.name">
-                  {{ p.name }}{{ p.description ? ` (${p.description})` : '' }}
+                <option v-for="p in serialPorts" :key="p" :value="p">
+                  {{ p }}
                 </option>
               </select>
               <button class="tool-btn" @click="refreshSerialPorts" :title="t('dialog.refreshSerialPorts')">&#x21bb;</button>
@@ -277,8 +256,7 @@ async function submit() {
 .modal-field { margin-bottom: 14px; }
 .modal-field label { display: block; font-size: 12px; color: var(--c-subtext0); margin-bottom: 6px; }
 .modal-field input[type="number"], .modal-field input[type="text"], .modal-field input[type="password"] {
-  box-sizing: border-box;
-  width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none;
+  box-sizing: border-box; width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none;
 }
 .modal-field input:focus { border-color: var(--c-blue); }
 .form-select { box-sizing: border-box; width: 100%; padding: 6px 10px; background: var(--c-surface0); border: 1px solid var(--c-surface1); border-radius: 4px; color: var(--c-text); font-size: 13px; outline: none; }

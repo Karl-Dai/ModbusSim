@@ -1,0 +1,32 @@
+slave 1 replied to "Read Discrete Inputs": 8 bit states, 2 ON / 6 OFF (details below)
+
+── Data details ──
+10001 = ON
+10002 = OFF
+10003 = ON
+10004 = OFF
+10005 = OFF
+10006 = OFF
+10007 = OFF
+10008 = OFF
+Note: the response frame carries no start address or quantity; numbering starts at 10001 by default and the last byte may contain padding bits — refer to the matching request
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 04  Length                  4 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+02     Function code           0x02 = Read Discrete Inputs
+01     Byte count              1 data bytes
+05     Data                    each bit is the state of one discrete input (LSB first within each byte)
+
+── Technical details ──
+Transport: Modbus TCP (10 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 4 (4 bytes actually follow)
+Unit ID: 1
+Function: 0x02 (Read Discrete Inputs)
+Byte count: 1
+Data: 05
+PDU: 02 01 05

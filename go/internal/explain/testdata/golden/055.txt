@@ -1,0 +1,19 @@
+slave 1 rejected the "Read Coils" request: Gateway path unavailable — the gateway could not forward the request to the target device
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 03  Length                  3 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+81     Function code           0x81 = 0x01 + 0x80, meaning "Read Coils" raised an exception
+0A     Exception code          0x0A = Gateway path unavailable — the gateway could not forward the request to the target device
+
+── Technical details ──
+Transport: Modbus TCP (9 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 3 (3 bytes actually follow)
+Unit ID: 1
+Function: 0x81 (0x01 | 0x80, exception response)
+Exception code: 0x0A (Gateway path unavailable)
+PDU: 81 0A

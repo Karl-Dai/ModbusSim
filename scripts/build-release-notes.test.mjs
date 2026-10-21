@@ -21,17 +21,18 @@ describe('buildBody', () => {
     assert.match(body, /^# ModbusSim v0\.17\.2\b/)
     assert.ok(body.includes('### Fixed 修复'))
     assert.ok(!body.includes('0.17.1'))
-    assert.ok(body.includes('ModbusSlave_0.17.2_aarch64.dmg'))
-    assert.ok(body.includes('ModbusMaster_0.17.2_amd64.AppImage'))
+    assert.ok(body.includes('ModbusSlave_0.17.2_macOS-universal.zip'))
+    assert.ok(body.includes('ModbusMaster_0.17.2_linux-x64.tar.gz'))
   })
 
-  it('lists x64 and ARM64 Windows installers and portable executables', () => {
+  it('lists the Wails asset names for every platform and app', () => {
     const body = buildBody('v0.17.2', changelog)
-    assert.ok(body.includes('ModbusSlave_0.17.2_x64-setup.exe'))
-    assert.ok(body.includes('ModbusMaster_0.17.2_x64-portable.exe'))
-    assert.ok(body.includes('ModbusSlave_0.17.2_arm64-setup.exe'))
-    assert.ok(body.includes('ModbusMaster_0.17.2_arm64_en-US.msi'))
-    assert.ok(body.includes('ModbusSlave_0.17.2_arm64-portable.exe'))
+    for (const app of ['ModbusSlave', 'ModbusMaster']) {
+      assert.ok(body.includes(`${app}_0.17.2_macOS-universal.zip`))
+      assert.ok(body.includes(`${app}_0.17.2_windows-x64.exe`))
+      assert.ok(body.includes(`${app}_0.17.2_windows-arm64.exe`))
+      assert.ok(body.includes(`${app}_0.17.2_linux-x64.tar.gz`))
+    }
   })
 
   it('keeps mirror and macOS first-launch guidance', () => {

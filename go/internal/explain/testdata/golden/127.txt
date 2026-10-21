@@ -1,0 +1,25 @@
+The master asks slave 1 to "Write Multiple Registers": write 2 registers starting from 40001
+
+── Data details ──
+40001 = 10 (0x000A)
+40002 = 257 (0x0101)
+
+── Byte-by-byte ──
+01           Slave address   device 1
+10           Function code   0x10 = Write Multiple Registers
+00 00        Start address   protocol address 0, PLC address 40001
+00 02        Write quantity  write 2 registers
+04           Byte count      4 bytes of write data
+00 0A 01 01  Write data      every 2 bytes are one register value to write
+DD           LRC check       LRC check passed
+
+── Technical details ──
+Transport: Modbus ASCII (12 decoded bytes)
+Slave address: 1
+Function: 0x10 (Write Multiple Registers)
+Start address: 0 (PLC 40001)
+Write quantity: 2
+Byte count: 4
+Data: 00 0A 01 01
+LRC: 0xDD (passed)
+PDU: 10 00 00 00 02 04 00 0A 01 01

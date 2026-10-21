@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, inject, watch, onMounted, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n } from 'shared-frontend'
 import type { MasterConnectionInfo, ScanGroupInfo } from '../types'
 
 const { t } = useI18n()
 
 const emit = defineEmits<{
-  (e: 'connection-select', id: string, state: string): void
+  (e: 'connection-select', id: string, State: string): void
   (e: 'scan-group-select', connectionId: string, group: ScanGroupInfo): void
 }>()
 
@@ -30,11 +30,11 @@ const contextMenu = ref<{ visible: boolean; x: number; y: number; type: 'connect
 
 async function loadTree() {
   try {
-    const conns = await invoke<MasterConnectionInfo[]>('list_master_connections')
+    const conns = await App.ListConnections()
     const newTree: TreeConnection[] = []
     for (const conn of conns) {
-      const existing = connections.value.find(c => c.info.id === conn.id)
-      const groups = await invoke<ScanGroupInfo[]>('list_scan_groups', { connectionId: conn.id })
+      const existing = connections.value.find(c => c.info.ID === conn.ID)
+      const groups = await App.ListScanGroups(conn.ID)
       newTree.push({
         info: conn,
         expanded: existing?.expanded ?? true,
@@ -51,14 +51,14 @@ watch(treeRefreshKey, loadTree)
 onMounted(loadTree)
 
 function selectConnection(conn: TreeConnection) {
-  selectedNodeId.value = conn.info.id
-  emit('connection-select', conn.info.id, conn.info.state)
+  selectedNodeId.value = conn.info.ID
+  emit('connection-select', conn.info.ID, conn.info.State)
 }
 
 function selectScanGroup(conn: TreeConnection, group: ScanGroupInfo) {
-  selectedNodeId.value = `${conn.info.id}:${group.id}`
-  emit('connection-select', conn.info.id, conn.info.state)
-  emit('scan-group-select', conn.info.id, group)
+  selectedNodeId.value = `${conn.info.ID}:${group.ID}`
+  emit('connection-select', conn.info.ID, conn.info.State)
+  emit('scan-group-select', conn.info.ID, group)
 }
 
 function toggleExpand(conn: TreeConnection) {
@@ -77,10 +77,7 @@ function hideContextMenu() {
 async function ctxStartPolling() {
   if (!contextMenu.value.groupId) return
   try {
-    await invoke('start_polling', {
-      connectionId: contextMenu.value.connId,
-      groupId: contextMenu.value.groupId,
-    })
+    await App.StartPolling(contextMenu.value.connId, contextMenu.value.groupId)
     refreshTree()
   } catch (_e) { /* ignore */ }
   hideContextMenu()
@@ -89,10 +86,7 @@ async function ctxStartPolling() {
 async function ctxStopPolling() {
   if (!contextMenu.value.groupId) return
   try {
-    await invoke('stop_polling', {
-      connectionId: contextMenu.value.connId,
-      groupId: contextMenu.value.groupId,
-    })
+    await App.StopPolling(contextMenu.value.connId, contextMenu.value.groupId)
     refreshTree()
   } catch (_e) { /* ignore */ }
   hideContextMenu()
@@ -101,10 +95,7 @@ async function ctxStopPolling() {
 async function ctxRemoveScanGroup() {
   if (!contextMenu.value.groupId) return
   try {
-    await invoke('remove_scan_group', {
-      connectionId: contextMenu.value.connId,
-      groupId: contextMenu.value.groupId,
-    })
+    await App.RemoveScanGroup(contextMenu.value.connId, contextMenu.value.groupId)
     refreshTree()
   } catch (_e) { /* ignore */ }
   hideContextMenu()
@@ -112,9 +103,7 @@ async function ctxRemoveScanGroup() {
 
 async function ctxDeleteConnection() {
   try {
-    await invoke('delete_master_connection', {
-      connectionId: contextMenu.value.connId,
-    })
+    await App.DeleteConnection(contextMenu.value.connId)
     refreshTree()
   } catch (_e) { /* ignore */ }
   hideContextMenu()
@@ -139,39 +128,33 @@ function fcLabel(fn: string): string {
       {{ t('tree.noConnection') }}
     </div>
 
-    <div v-for="conn in connections" :key="conn.info.id" class="tree-node-group">
+    <div v-for="conn in connections" :key="conn.info.ID" class="tree-node-group">
       <!-- Connection node -->
       <div
-        :class="['tree-node', { selected: selectedNodeId === conn.info.id }]"
-        role="button" tabindex="0"
-        @click="selectConnection(conn)"
-        @keydown.enter.prevent="selectConnection(conn)"
-        @keydown.space.prevent="selectConnection(conn)"
-        @contextmenu="showContextMenu($event, 'connection', conn.info.id)"
+        :class="['tree-node', { selected: selectedNodeId === conn.info.ID }]"
+        role="button" tabindex="0" @click="selectConnection(conn)" @keydown.enter.prevent="selectConnection(conn)" @keydown.space.prevent="selectConnection(conn)"
+        @contextmenu="showContextMenu($event, 'connection', conn.info.ID)"
       >
         <span class="node-expand" @click.stop="toggleExpand(conn)">
           {{ conn.expanded ? '▼' : '▶' }}
         </span>
-        <span :class="['node-status', conn.info.state.toLowerCase()]"></span>
-        <span class="node-label">{{ conn.info.target_address }}:{{ conn.info.port }}</span>
-        <span class="node-slave">ID:{{ conn.info.slave_id }}</span>
+        <span :class="['node-status', conn.info.State.toLowerCase()]"></span>
+        <span class="node-label">{{ conn.info.TargetAddress }}:{{ conn.info.Port }}</span>
+        <span class="node-slave">ID:{{ conn.info.SlaveID }}</span>
       </div>
 
       <!-- Scan group children -->
       <div v-if="conn.expanded" class="tree-children">
         <div
           v-for="group in conn.scanGroups"
-          :key="group.id"
-          :class="['tree-node', 'tree-child', { selected: selectedNodeId === `${conn.info.id}:${group.id}` }]"
-          role="button" tabindex="0"
-          @click="selectScanGroup(conn, group)"
-          @keydown.enter.prevent="selectScanGroup(conn, group)"
-          @keydown.space.prevent="selectScanGroup(conn, group)"
-          @contextmenu="showContextMenu($event, 'scan_group', conn.info.id, group.id)"
+          :key="group.ID"
+          :class="['tree-node', 'tree-child', { selected: selectedNodeId === `${conn.info.ID}:${group.ID}` }]"
+          role="button" tabindex="0" @click="selectScanGroup(conn, group)" @keydown.enter.prevent="selectScanGroup(conn, group)" @keydown.space.prevent="selectScanGroup(conn, group)"
+          @contextmenu="showContextMenu($event, 'scan_group', conn.info.ID, group.ID)"
         >
-          <span :class="['poll-indicator', { active: group.is_polling }]"></span>
-          <span class="node-label">{{ group.name }}</span>
-          <span class="node-meta">{{ fcLabel(group.function) }} {{ group.start_address }}x{{ group.quantity }}</span>
+          <span :class="['poll-indicator', { active: group.IsPolling }]"></span>
+          <span class="node-label">{{ group.Name }}</span>
+          <span class="node-meta">{{ fcLabel(group.Function) }} {{ group.StartAddress }}x{{ group.Quantity }}</span>
         </div>
       </div>
     </div>
@@ -257,7 +240,7 @@ function fcLabel(fn: string): string {
 
 .node-status.connected { background: var(--c-green); }
 .node-status.disconnected { background: var(--c-red); }
-.node-status.error { background: var(--c-peach); }
+.node-status.Error { background: var(--c-peach); }
 .node-status.reconnecting {
   background: var(--c-yellow);
   animation: reconnecting-pulse 1s ease-in-out infinite;

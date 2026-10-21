@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { ref, watch, computed } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert } from 'shared-frontend'
+import { normalizeMutationMode } from '../composables/useRegisterFormat'
 import type { MutationMode, MutationConfig, RegisterDef } from '../composables/useRegisterFormat'
 
 const { t } = useI18n()
@@ -24,22 +25,22 @@ const max = ref(100)
 
 // Coil / Discrete Input are single-bit: only flip applies.
 const isBool = computed(
-  () => props.register?.register_type === 'coil' || props.register?.register_type === 'discrete_input'
+  () => props.register?.RegisterType === 'coil' || props.register?.RegisterType === 'discrete_input'
 )
-const isConfigured = computed(() => !!props.register?.mutation?.enabled)
+const isConfigured = computed(() => !!props.register?.Mutation?.Enabled)
 const showStep = computed(() => !isBool.value && (mode.value === 'increment' || mode.value === 'decrement'))
 
 watch(
   () => [props.show, props.register],
   () => {
     if (!props.show) return
-    const m = props.register?.mutation
+    const m = props.register?.Mutation
     if (m) {
-      mode.value = m.mode
-      periodMs.value = m.period_ms
-      step.value = m.step
-      min.value = m.min
-      max.value = m.max
+      mode.value = normalizeMutationMode(m.Mode)
+      periodMs.value = m.PeriodMS ?? 1000
+      step.value = m.Step
+      min.value = m.Min
+      max.value = m.Max
     } else {
       mode.value = 'flip'
       periodMs.value = 1000
@@ -53,7 +54,7 @@ watch(
 
 const title = computed(() => {
   const r = props.register
-  return r ? `${t('mutation.title')} — ${r.register_type} @ ${r.address}` : t('mutation.title')
+  return r ? `${t('mutation.title')} — ${r.RegisterType} @ ${r.Address}` : t('mutation.title')
 })
 
 async function save() {
@@ -71,24 +72,22 @@ async function save() {
     return
   }
   const config: MutationConfig = {
-    enabled: true,
-    mode: isBool.value ? 'flip' : mode.value,
-    period_ms: Math.round(periodMs.value),
-    step: step.value,
-    min: min.value,
-    max: max.value,
+    Enabled: true,
+    Mode: isBool.value ? 'flip' : mode.value,
+    PeriodMS: Math.round(periodMs.value),
+    Step: step.value,
+    Min: min.value,
+    Max: max.value,
   }
   try {
-    await invoke('set_point_mutation', {
-      request: {
-        connection_id: props.connectionId,
-        slave_id: props.slaveId,
-        register_type: props.register.register_type,
-        address: props.register.address,
-        config,
-      },
-    })
-    await invoke('set_mutation_running', { running: true })
+    await App.SetPointMutation({
+        ConnectionID: props.connectionId,
+        SlaveID: props.slaveId,
+        RegisterType: props.register.RegisterType,
+        Address: props.register.Address,
+        Config: config,
+      })
+    await App.SetMutationRunning(true)
     emit('saved')
     emit('close')
   } catch (e) {
@@ -99,14 +98,7 @@ async function save() {
 async function clear() {
   if (!props.register) return
   try {
-    await invoke('clear_point_mutation', {
-      request: {
-        connection_id: props.connectionId,
-        slave_id: props.slaveId,
-        register_type: props.register.register_type,
-        address: props.register.address,
-      },
-    })
+    await App.ClearPointMutation(props.connectionId, props.slaveId, props.register.RegisterType, props.register.Address)
     emit('saved')
     emit('close')
   } catch (e) {

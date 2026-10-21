@@ -13,7 +13,10 @@
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { extractChangelogSection } from './gen-update-manifest.mjs'
+function extractChangelogSection(md, version) {
+ const sections = md.split(/(?=^## \[)/m)
+ return sections.find(section => section.startsWith('## [' + version + ']'))?.split('\n').slice(1).join('\n').trim() ?? ''
+}
 
 const REPO = 'Karl-Dai/ModbusSim'
 const REPO_URL = `https://github.com/${REPO}`
@@ -30,14 +33,14 @@ const MACOS_FIRST_LAUNCH_NOTE = [
   'run `xattr -dr com.apple.quarantine "/Applications/ModbusSlave.app"` in Terminal.',
 ].join('\n')
 
-// 国内用户首次从旧版升级时,updater 仍指向 github.com,大概率拉不到;
-// 引导他们直接走镜像下载安装包。新版本起 updater 已带 proxy fallback。
+// Go/Wails 版没有内置 updater(应用内只跳转到 Releases 页),
+// 引导国内用户直接走镜像下载。
 const CN_MIRROR_BANNER = [
-  '> 🇨🇳 **中国大陆用户**:首次从旧版升级若失败,请直接从镜像下载安装包(新版本起更新检查会自动走 proxy):',
+  '> 🇨🇳 **中国大陆用户**:GitHub 下载缓慢时可走镜像加速:',
   '>',
   `> <https://ghfast.top/${REPO_URL}/releases/latest>`,
   '>',
-  '> 🌍 **Users in mainland China**: if the in-app updater fails on first upgrade from a previous version, download installers from the mirror above (later versions will auto-fallback through proxies).',
+  '> 🌍 **Users in mainland China**: use the mirror above when GitHub downloads are slow.',
 ].join('\n')
 
 const APPS = [
@@ -45,18 +48,12 @@ const APPS = [
   { role: 'Master (主站)', prefix: 'ModbusMaster' },
 ]
 
+// Asset names must match the Wails build matrix in .github/workflows/release.yml.
 const PLATFORMS = [
-  { label: 'macOS Apple Silicon', file: (p, v) => `${p}_${v}_aarch64.dmg` },
-  { label: 'macOS Intel',         file: (p, v) => `${p}_${v}_x64.dmg` },
-  { label: 'Windows x64 (NSIS)',  file: (p, v) => `${p}_${v}_x64-setup.exe` },
-  { label: 'Windows x64 (MSI)',   file: (p, v) => `${p}_${v}_x64_en-US.msi` },
-  { label: 'Windows x64 portable', file: (p, v) => `${p}_${v}_x64-portable.exe` },
-  { label: 'Windows ARM64 (NSIS)', file: (p, v) => `${p}_${v}_arm64-setup.exe` },
-  { label: 'Windows ARM64 (MSI)', file: (p, v) => `${p}_${v}_arm64_en-US.msi` },
-  { label: 'Windows ARM64 portable', file: (p, v) => `${p}_${v}_arm64-portable.exe` },
-  { label: 'Linux AppImage',      file: (p, v) => `${p}_${v}_amd64.AppImage` },
-  { label: 'Linux deb',           file: (p, v) => `${p}_${v}_amd64.deb` },
-  { label: 'Linux rpm',           file: (p, v) => `${p}-${v}-1.x86_64.rpm` },
+  { label: 'macOS (Universal, zip)', file: (p, v) => `${p}_${v}_macOS-universal.zip` },
+  { label: 'Windows ARM64 (exe)', file: (p, v) => `${p}_${v}_windows-arm64.exe` },
+  { label: 'Windows x64 (exe)',      file: (p, v) => `${p}_${v}_windows-x64.exe` },
+  { label: 'Linux x64 (tar.gz)',     file: (p, v) => `${p}_${v}_linux-x64.tar.gz` },
 ]
 
 export function buildBody(tag, changelog) {
@@ -68,9 +65,15 @@ export function buildBody(tag, changelog) {
   lines.push('')
   lines.push(CN_MIRROR_BANNER)
   lines.push('')
+  lines.push('Go/Wails 版请手动下载安装，旧 Tauri 版不支持直接自动升级。工程文件可导入旧 v1 格式，保存为 Go v2 格式后请保留备份。 / Install the Go/Wails version manually; the previous Tauri updater cannot install this release. Legacy v1 projects can be imported; keep a backup before saving in Go v2 format.')
+  lines.push('')
+  lines.push('SHA256SUMS 与 release-manifest.json 提供全部发布包的校验值。 / SHA256SUMS and release-manifest.json contain checksums for every bundle.')
+  lines.push('')
   lines.push('## 下载 / Downloads')
   lines.push('')
   lines.push('下方资产里按平台选择 / Pick the asset for your platform below:')
+  lines.push('')
+  lines.push('macOS 包解压后得到 `.app`,拖入“应用程序”即可;Windows 为单文件 exe(首次运行若缺 WebView2 会引导安装);Linux 为单文件二进制。 / The macOS zip contains the `.app` bundle; the Windows asset is a single exe (it offers to install WebView2 if missing); the Linux asset is a single binary.')
   lines.push('')
   lines.push(`| 平台 / Platform | ${APPS[0].role} | ${APPS[1].role} |`)
   lines.push('|---|---|---|')

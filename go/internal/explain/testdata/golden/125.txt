@@ -1,0 +1,20 @@
+The master asks slave 1 to "Write Single Coil": set coil 00001 to ON
+
+── Data details ──
+00001 = ON
+
+── Byte-by-byte ──
+01     Slave address  device 1
+05     Function code  0x05 = Write Single Coil
+00 00  Address        protocol address 0, PLC address 00001
+FF 00  Write value    0xFF00 = ON
+FB     LRC check      LRC check passed
+
+── Technical details ──
+Transport: Modbus ASCII (7 decoded bytes)
+Slave address: 1
+Function: 0x05 (Write Single Coil)
+Address: 0 (PLC 00001)
+Write value: 0xFF00 (ON)
+LRC: 0xFB (passed)
+PDU: 05 00 00 FF 00

@@ -1,0 +1,18 @@
+slave 1 rejected the "Read Holding Registers" request: Illegal data address — the register being accessed does not exist on the slave
+
+── Byte-by-byte ──
+01     Slave address   device 1
+83     Function code   0x83 = 0x03 + 0x80, meaning "Read Holding Registers" raised an exception
+02     Exception code  0x02 = Illegal data address — the register being accessed does not exist on the slave
+C0 F1  CRC check       CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (5 bytes total)
+Slave address: 1
+Function: 0x83 (0x03 | 0x80, exception response)
+Exception code: 0x02 (Illegal data address)
+CRC16: 0xF1C0 (wire order C0 F1, passed)
+PDU: 83 02

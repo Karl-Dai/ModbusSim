@@ -1,0 +1,25 @@
+slave 1 replied to "Read Input Registers": 30001 = 4660 (0x1234)
+
+── Data details ──
+30001 = 4660 (0x1234)
+Note: the response frame carries no start address; numbering starts at 30001 by default — the real start address comes from the matching request
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 05  Length                  5 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+04     Function code           0x04 = Read Input Registers
+02     Byte count              2 data bytes
+12 34  Data                    every 2 bytes are one register value
+
+── Technical details ──
+Transport: Modbus TCP (11 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 5 (5 bytes actually follow)
+Unit ID: 1
+Function: 0x04 (Read Input Registers)
+Byte count: 2
+Data: 12 34
+PDU: 04 02 12 34

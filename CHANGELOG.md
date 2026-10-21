@@ -8,6 +8,25 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.9] - 2026-10-21
+
+### Highlights / 亮点
+
+- 主从站全面切换至 Go 协议核心与 Wails 桌面框架，移除活动 Rust/Tauri 源码、依赖和构建流程。 / Both apps now use the Go protocol core and Wails desktop host; active Rust/Tauri sources, dependencies and builds have been removed.
+- 保留五种传输、TLS/mTLS、SOCKS5、扫描、仿真、日志与双语主题，并迁入 v0.17.8 的线圈 ON/OFF、从站定向写入和停止轮询后回读修复。 / Retain all five transports, TLS/mTLS, SOCKS5, discovery, simulation, logs and bilingual themes, including v0.17.8 coil controls, station-aware writes and stopped-polling readback fixes.
+- 发布 macOS Universal、Linux x64、Windows x64/ARM64 两端共 8 个包，并提供 SHA256SUMS 和机器可读校验清单。 / Publish 8 bundles across macOS Universal, Linux x64 and Windows x64/ARM64 with SHA256SUMS and a machine-readable checksum manifest.
+
+### Migration 迁移
+
+- 本版需手动下载安装，不使用旧 Tauri 自动更新器；旧版本仍可从历史 Release 下载。 / Install this version manually; the previous Tauri auto-installer is not used. Earlier versions remain available in release history.
+- 可导入旧 v1 工程；Go 版保存为 v2 格式，旧 Rust 版无法读取新格式，请保留原文件备份。 / Legacy v1 projects can be imported. Go saves v2 projects, which the earlier Rust version cannot read; keep a backup of the original project.
+- macOS 最低系统版本为 13；Linux 需要 GTK3 和 WebKitGTK 4.0，Windows 使用 WebView2。 / macOS requires version 13 or later; Linux uses GTK3 and WebKitGTK 4.0, and Windows uses WebView2.
+
+### Fixed 修复
+
+- 线圈及寄存器的 FC05/06/15/16 写入遵循扫描组从站 ID；主动回读刷新缓存和当前选择值，且不会静默抹除读取错误。 / FC05/06/15/16 honor the scan-group slave ID; explicit readbacks refresh cached and selected values without silently clearing read errors.
+- 版本号、关于信息、夜间版本准备和发布下载表均以 Go/Wails 配置为准。 / Versions, About information, nightly release preparation and download tables now follow Go/Wails metadata.
+
 ## [0.17.8] - 2026-10-21
 
 ### Highlights / 亮点

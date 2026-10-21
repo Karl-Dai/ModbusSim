@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { vModal } from 'shared-frontend'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert, useFcLabel } from 'shared-frontend'
+import { normalizeMutationMode } from '../composables/useRegisterFormat'
 import type { MutationMode, PointMutationInfo, RegisterDef } from '../composables/useRegisterFormat'
 
 const { t } = useI18n()
@@ -14,7 +15,7 @@ const props = defineProps<{
   slaveId: number
   selectedRegs: RegisterDef[]
   activeRows: PointMutationInfo[]
-  currentValueFor: (reg: { register_type: string; address: number }) => string
+  currentValueFor: (reg: { RegisterType: string; Address: number }) => string
 }>()
 
 const emit = defineEmits<{
@@ -29,12 +30,12 @@ const min = ref(0)
 const max = ref(100)
 const actionPending = ref(false)
 
-function pointKey(reg: { register_type: string; address: number }) {
-  return `${reg.register_type}@${reg.address}`
+function pointKey(reg: { RegisterType: string; Address: number }) {
+  return `${reg.RegisterType}@${reg.Address}`
 }
 
 function pointSupportsStep(reg: RegisterDef) {
-  return reg.register_type !== 'coil' && reg.register_type !== 'discrete_input'
+  return reg.RegisterType !== 'coil' && reg.RegisterType !== 'discrete_input'
 }
 
 const selectedSignature = computed(() =>
@@ -53,7 +54,7 @@ const selectedConfigSignatures = computed(() =>
   props.selectedRegs.map((reg) => {
     const active = activeByKey.value.get(pointKey(reg))
     return active
-      ? `${active.mode}:${active.period_ms}:${active.step}:${active.min}:${active.max}`
+      ? `${active.Mode}:${active.PeriodMS}:${active.Step}:${active.Min}:${active.Max}`
       : 'inactive'
   }),
 )
@@ -65,7 +66,7 @@ function applyDefaults(reg: RegisterDef) {
   const value = 0
   mode.value = 'flip'
   period.value = 1000
-  if (reg.data_type === 'float32') {
+  if (reg.DataType === 'float32') {
     step.value = 0.5
     min.value = -1
     max.value = 1
@@ -81,11 +82,11 @@ function loadSelectionConfig() {
   if (!first) return
   const active = activeByKey.value.get(pointKey(first))
   if (active && !mixedSelectedConfig.value) {
-    period.value = active.period_ms
-    mode.value = active.mode
-    step.value = active.step
-    min.value = active.min
-    max.value = active.max
+    period.value = active.PeriodMS
+    mode.value = normalizeMutationMode(active.Mode)
+    step.value = active.Step
+    min.value = active.Min
+    max.value = active.Max
     return
   }
   applyDefaults(first)
@@ -146,15 +147,15 @@ async function applyToSelection() {
   }
 
   const targets = props.selectedRegs.map((reg) => ({
-    register_type: reg.register_type,
-    address: reg.address,
-    config: {
-      enabled: true,
-      mode: pointSupportsStep(reg) ? mode.value : 'flip',
-      period_ms: Math.round(period.value),
-      step: step.value,
-      min: min.value,
-      max: max.value,
+    RegisterType: reg.RegisterType,
+    Address: reg.Address,
+    Config: {
+      Enabled: true,
+      Mode: pointSupportsStep(reg) ? mode.value : 'flip',
+      PeriodMS: Math.round(period.value),
+      Step: step.value,
+      Min: min.value,
+      Max: max.value,
     },
   }))
   const connectionId = props.connectionId
@@ -162,18 +163,16 @@ async function applyToSelection() {
   actionPending.value = true
   try {
     for (const target of targets) {
-      await invoke('set_point_mutation', {
-        request: {
-          connection_id: connectionId,
-          slave_id: slaveId,
-          register_type: target.register_type,
-          address: target.address,
-          config: target.config,
-        },
-      })
+      await App.SetPointMutation({
+          ConnectionID: connectionId,
+          SlaveID: slaveId,
+          RegisterType: target.RegisterType,
+          Address: target.Address,
+          Config: target.Config,
+        })
     }
     // Applying a point configuration starts its mutation immediately.
-    await invoke('set_mutation_running', { running: true })
+    await App.SetMutationRunning(true)
     emit('changed')
   } catch (error) {
     await showAlert(t('errors.operationFailed', { err: String(error) }))
@@ -182,22 +181,15 @@ async function applyToSelection() {
   }
 }
 
-async function stopPoints(points: Array<{ register_type: string; address: number }>) {
+async function stopPoints(points: Array<{ RegisterType: string; Address: number }>) {
   if (actionPending.value || points.length === 0) return
   const connectionId = props.connectionId
   const slaveId = props.slaveId
-  const targets = points.map(({ register_type, address }) => ({ register_type, address }))
+  const targets = points.map(({ RegisterType, Address: address }) => ({ RegisterType, Address: address }))
   actionPending.value = true
   try {
     for (const point of targets) {
-      await invoke('clear_point_mutation', {
-        request: {
-          connection_id: connectionId,
-          slave_id: slaveId,
-          register_type: point.register_type,
-          address: point.address,
-        },
-      })
+      await App.ClearPointMutation(connectionId, slaveId, point.RegisterType, point.Address)
     }
     emit('changed')
   } catch (error) {
@@ -211,15 +203,15 @@ function stopSelection() {
   return stopPoints(props.selectedRegs)
 }
 
-function modeLabel(value: MutationMode) {
+function modeLabel(value: string) {
   if (value === 'increment') return t('mutation.modeIncrement')
   if (value === 'decrement') return t('mutation.modeDecrement')
   if (value === 'random') return t('mutation.modeRandom')
   return t('mutation.modeFlip')
 }
 
-function pointTitle(reg: { register_type: string; address: number }) {
-  return `${registerTypeLabel(reg.register_type)} @ ${reg.address}`
+function pointTitle(reg: { RegisterType: string; Address: number }) {
+  return `${registerTypeLabel(reg.RegisterType)} @ ${reg.Address}`
 }
 </script>
 
@@ -358,19 +350,19 @@ function pointTitle(reg: { register_type: string; address: number }) {
                   <dl>
                     <div>
                       <dt>{{ t('mutation.mode') }}</dt>
-                      <dd>{{ modeLabel(row.mode) }}</dd>
+                      <dd>{{ modeLabel(row.Mode) }}</dd>
                     </div>
                     <div>
                       <dt>{{ t('mutation.period') }}</dt>
-                      <dd>{{ row.period_ms }} ms</dd>
+                      <dd>{{ row.PeriodMS }} ms</dd>
                     </div>
-                    <div v-if="row.mode === 'increment' || row.mode === 'decrement'">
+                    <div v-if="row.Mode === 'increment' || row.Mode === 'decrement'">
                       <dt>{{ t('mutation.step') }}</dt>
-                      <dd>{{ row.step }}</dd>
+                      <dd>{{ row.Step }}</dd>
                     </div>
-                    <div v-if="row.mode !== 'flip'">
+                    <div v-if="row.Mode !== 'flip'">
                       <dt>{{ t('mutation.min') }} / {{ t('mutation.max') }}</dt>
-                      <dd>{{ row.min }} / {{ row.max }}</dd>
+                      <dd>{{ row.Min }} / {{ row.Max }}</dd>
                     </div>
                     <div>
                       <dt>{{ t('simulationSettings.currentValue') }}</dt>

@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20·%20macOS%20·%20Linux-informational)]()
 
-基于 **Rust** · **Tauri 2** · **Vue 3** 构建
+基于 **Go** · **Wails 2** · **Vue 3** 构建
 
 [English](README.md) · **中文**
 
@@ -30,7 +30,7 @@
 - 🔌 **五种传输,同一内核** —— TCP、TCP+TLS、RTU、ASCII、RTU-over-TCP,覆盖功能码 FC01–FC06 / FC15 / FC16。
 - 📈 **内置数据仿真** —— 每个寄存器都能跑自己的数据源(固定值 / 随机 / 正弦 / 锯齿 / 三角 / 计数器 / CSV 回放)或独立周期的变位计划;支持 20,000+ 寄存器虚拟滚动。
 - 🌐 **网络可达性** —— 主站的 TCP、TCP+TLS、RTU-over-TCP 连接可走 SOCKS5 代理,支持可选认证与代理侧域名解析。
-- 🖥️ **原生桌面应用** —— Rust + Tauri 的小体积安装包,覆盖 Windows / macOS / Linux,内置应用内自动更新。
+- 🖥️ **原生桌面应用** —— Go + Wails 的小体积安装包,覆盖 Windows / macOS / Linux,提供独立桌面程序和手动下载升级。
 - 🌏 **中英双语界面** —— 完整 English / 简体中文,运行时即时切换。
 
 ## 目录
@@ -46,7 +46,6 @@
 - [参与贡献](#参与贡献)
 - [更新日志](#更新日志)
 - [macOS 首次启动](#macos-首次启动)
-- [匿名使用统计](#匿名使用统计)
 - [许可证](#许可证)
 
 ## 应用截图
@@ -97,7 +96,7 @@ ModbusSlave 在 `0.0.0.0:502` 上跑一个真实 Modbus TCP 服务器,挂两个�
 
 - **多传输模式** —— TCP、TCP+TLS、RTU(串口)、ASCII(串口)、RTU-over-TCP
 - **Modbus TCP over TLS** —— TLS 1.2+ 加密传输,支持 PEM 和 PKCS#12 证书格式,支持自签名证书测试模式
-- **SOCKS5 代理** —— TCP、TCP+TLS、RTU-over-TCP 连接可走 SOCKS5 代理(IPv4/IPv6),支持可选用户名/密码认证与代理侧域名解析;密码不会出现在 Rust Debug 输出中,界面明确提示 RFC 1929 凭据与工程文件的安全边界
+- **SOCKS5 代理** —— TCP、TCP+TLS、RTU-over-TCP 连接可走 SOCKS5 代理(IPv4/IPv6),支持可选用户名/密码认证与代理侧域名解析;密码不会出现在 Go 日志中,界面明确提示 RFC 1929 凭据与工程文件的安全边界
 - **扫描组** —— 按寄存器组配置周期性轮询,自定义轮询间隔,支持独立从站 ID 覆盖
 - **设备发现** —— 从站 ID 扫描 (1–247)、寄存器地址扫描、发现设备后自动添加到扫描组
 - **多格式数据视图** —— 无符号、有符号、十六进制、二进制、Float32 (AB CD / CD AB),虚拟滚动
@@ -106,34 +105,26 @@ ModbusSlave 在 `0.0.0.0:502` 上跑一个真实 Modbus TCP 服务器,挂两个�
 - **自动重连** —— 可配置的指数退避重连策略(1s → 2s → 4s → … → 最大 30s)
 - **项目文件** —— 保存/加载连接和扫描组配置
 - **连接即扫描** —— 连接成功后自动提示扫描从站设备
-- **应用内自动更新** —— 更新包先在后台静默下载并验签,准备完成后提示立即安装、跳过该版本或下次启动安装(6 小时检查节流、"稍后" 24 小时不重提)
+- **版本升级** —— 帮助菜单打开 Release 页面，手动下载安装 Go/Wails 版本。
 
 ### 🧩 共享架构
 
 - **统一错误系统** —— 结构化 `ModbusError`,分类错误类型(连接/协议/应用),序列化为 JSON 供前端解析
-- **共享 Vue 组件** —— 通用 composables、类型定义与 i18n 通过 `shared-frontend` npm workspace 在两个 Tauri 应用间共享
+- **共享 Vue 组件** —— 通用 composables、类型定义与 i18n 通过 `shared-frontend` npm workspace 在两个 Wails 应用间共享
 
 ## 下载安装
 
-各平台预编译安装包均在 **[Releases 页面](https://github.com/Karl-Dai/ModbusSim/releases)**。
+从 [最新 Release](https://github.com/Karl-Dai/ModbusSim/releases/latest) 下载 ModbusSlave 或 ModbusMaster。
 
-| 平台 | 安装包 |
-|------|--------|
-| Windows | `.msi` / `.exe`(NSIS) |
-| macOS   | `.dmg`(Apple Silicon 与 Intel) |
-| Linux   | `.AppImage` / `.deb` / `.rpm` |
+| 平台 | 发布包 |
+|---|---|
+| macOS 13+ (Apple Silicon / Intel) | Universal `.zip`，解压后将 `.app` 拖入应用程序 |
+| Windows x64 / ARM64 | 对应架构的独立 `.exe`，需要 WebView2 |
+| Linux x64 | `.tar.gz`，解压后二进制需 GTK3、WebKitGTK 4.0 |
 
-两个应用自 v0.16.0 起均支持从 GitHub Releases **自动更新**。自 v0.17.2 起,更新包先在后台下载并验签,准备完成后再提示立即安装 / 跳过该版本 / 下次启动安装。macOS 用户首次启动需要[多做一步](#macos-首次启动)。
+本版以 Go/Wails 替代 Rust/Tauri，需要手动安装。提供 `SHA256SUMS` 和 `release-manifest.json` 校验下载文件；旧版更新器不能直接安装 Go 发布包。
 
-> **提示**:自 v0.16 起,egui 原生版(文件名含 `-egui-` 后缀)停止维护与发布,请迁移到上表的 Tauri 版安装包。
-
-### 国内镜像 (China mirror)
-
-中国大陆用户访问 GitHub Releases 可能不稳定,推荐通过镜像直接下载安装包:
-
-- <https://ghfast.top/https://github.com/Karl-Dai/ModbusSim/releases/latest>
-
-自 v0.16.0 起,应用内更新会自动通过多个反代回退,无需手动处理。但**首次从 0.16 之前的旧版升级**时,旧版二进制根本没有应用内更新器,请按上面镜像链接手动下载新版安装一次,后续更新即可自动通过 proxy。
+旧 v1 工程可以导入；保存为 Go v2 后无法由旧 Rust 版本读取，请保留原工程备份。详见 [迁移说明](docs/go-migration.md)。
 
 ## 支持的功能码
 
@@ -160,43 +151,30 @@ ModbusSlave 在 `0.0.0.0:502` 上跑一个真实 Modbus TCP 服务器,挂两个�
 
 ## 从源码构建
 
-### 环境要求
+需要 Go 1.27+、Node.js 22+ 和所在平台的 Wails 原生依赖。Linux（Ubuntu 22.04）安装 `libgtk-3-dev libwebkit2gtk-4.0-dev`；macOS 需要 Xcode Command Line Tools。
 
-- [Rust](https://rustup.rs/) 1.77+
-- [Node.js](https://nodejs.org/) 18+
-- [Tauri CLI](https://tauri.app/) —— `cargo install tauri-cli`
-
-### 步骤
-
-```bash
-# 安装前端依赖(npm workspaces —— 在仓库根目录执行一次即可)
-npm install
-
-# 启动从站
-cd crates/modbussim-app && cargo tauri dev
-
-# 启动主站
-cd crates/modbusmaster-app && cargo tauri dev
+```sh
+npm ci --ignore-scripts
+npm run dev:slave:go
+npm run dev:master:go
+# 生产构建
+npm run build:slave:go
+npm run build:master:go
+# 绑定变更后重新生成
+npm run bindings:slave:go
+npm run bindings:master:go
+# 验证
+npm test --workspace shared-frontend
+npm run test:go
 ```
 
-### 构建安装包
-
-```bash
-cd crates/modbussim-app && cargo tauri build
-cd crates/modbusmaster-app && cargo tauri build
-```
-
-### 运行测试
-
-```bash
-cargo test --workspace
-```
+脚本使用 Wails v2.14.0，并自动配置 macOS CGO 参数。详见 [Go 开发说明](go/README.md)。
 
 ## 快速开始(教程)
 
 六步跑通一次完整往返 —— 用主站驱动仿真从站,全程无需硬件。(截图为中文界面,随时可用 **中 / EN** 切换语言。)
 
-> **先安装:** 从 [Releases 页面](#下载安装)下载对应平台安装包,或从源码运行(`cargo tauri dev`)。**同时**打开 `ModbusSlave` 与 `ModbusMaster` 两个应用。
+> **先安装:** 从 [Releases 页面](#下载安装)下载对应平台安装包,或从源码运行(`npm run dev:slave:go` / `npm run dev:master:go`)。**同时**打开 `ModbusSlave` 与 `ModbusMaster` 两个应用。
 
 ### 第 1 步 · 从站 —— 新建服务器与寄存器
 
@@ -242,44 +220,21 @@ cargo test --workspace
 
 ## 项目结构
 
-```
-ModbusSim/
-├── crates/
-│   ├── modbussim-core/            # 核心库:协议、传输、寄存器、日志
-│   │   └── src/
-│   │       ├── slave.rs / master.rs           # 从站/主站连接(TCP/RTU/ASCII/RtuOverTcp 派发)
-│   │       ├── frame.rs / pdu.rs / parse.rs   # RTU/ASCII 帧编解码、Modbus PDU 解析
-│   │       ├── mbap.rs                        # MBAP 帧编解码(TLS 模式使用)
-│   │       ├── tls_slave.rs / tls_master.rs   # TLS 加密 Modbus TCP 从站服务器 / 主站客户端
-│   │       ├── ascii_slave.rs / ascii_master.rs       # ASCII 串口传输
-│   │       ├── rtu_slave.rs / rtu_master.rs           # RTU 串口传输
-│   │       ├── rtu_tcp_slave.rs / rtu_tcp_master.rs   # RTU-over-TCP 传输
-│   │       ├── socks5.rs                      # 主站网络传输的 SOCKS5 CONNECT 代理
-│   │       ├── transport.rs                   # Transport 枚举、串口配置、TLS 配置、端口枚举
-│   │       ├── register.rs                    # 寄存器类型、编码/解码(含 32 位宽值)
-│   │       ├── data_source.rs                 # 逐点数据源(正弦波、计数器、CSV 回放等)
-│   │       ├── mutation.rs                    # 逐点周期变位计划
-│   │       ├── reconnect.rs                   # 重连策略(指数退避)
-│   │       ├── error.rs                       # 统一 ModbusError 枚举
-│   │       ├── project.rs                     # .modbusproj 文件保存/加载/迁移
-│   │       ├── config.rs                      # 连接与扫描组配置类型
-│   │       └── log_collector.rs / log_entry.rs / log_helpers.rs  # 线程安全日志环形缓冲区
-│   ├── modbussim-app/             # 从站 Tauri 应用 —— ModbusSlave
-│   └── modbusmaster-app/          # 主站 Tauri 应用 —— ModbusMaster
-├── frontend/                      # 从站 Vue 3 前端
-├── master-frontend/               # 主站 Vue 3 前端
-└── shared-frontend/               # 共享 Vue 组件、composables、i18n
+```text
+go/internal/             协议、传输、工程、仿真和状态管理
+go/cmd/slavegui/          从站 Wails 应用
+go/cmd/mastergui/         主站 Wails 应用
+frontend/                从站 Vue 前端
+master-frontend/         主站 Vue 前端
+shared-frontend/         主题、双语和共享组件
+scripts/                 Go/Wails 版本与产物校验
 ```
 
-| 层 | 技术栈 |
-|----|--------|
-| 后端 | Rust、Tokio(异步运行时)、[tokio-modbus](https://github.com/slowtec/tokio-modbus)、[tokio-serial](https://github.com/berkowski/tokio-serial)、[native-tls](https://crates.io/crates/native-tls)(macOS Security.framework / Linux OpenSSL / Windows SChannel)、[serialport](https://crates.io/crates/serialport) |
-| 前端 | Vue 3、TypeScript、Vite、[@tanstack/vue-virtual](https://tanstack.com/virtual) |
-| 桌面端 | Tauri 2 |
+Go 是协议与应用状态的唯一实现，Vue 通过生成的 Wails 绑定调用。旧 Rust 源码保留在 v0.17.8 及之前的 Git 标签中。
 
 ## 参与贡献
 
-欢迎提交 Issue 与 Pull Request。提交代码改动前,请确保 `cargo test --workspace` 通过(并完成前端类型检查)。
+欢迎提交 Issue 与 Pull Request。提交代码改动前,请确保 `npm run test:go` 通过(并完成前端类型检查)。
 
 ## 更新日志
 
@@ -312,9 +267,7 @@ xattr -dr com.apple.quarantine "/Applications/ModbusMaster.app"
 
 </details>
 
-## 匿名使用统计
 
-ModbusSim 启动时通过 [Aptabase](https://aptabase.com) 发送一个匿名的 `app_started` 事件,便于作者了解装机量、活跃度与版本/系统分布。它**不采集任何个人数据**——只有应用版本、操作系统、语言和由 IP 现场推算的大致国家(IP 本身从不存储)。可随时在工具栏的 ⓘ「关于」气泡里关闭。
 
 ## 许可证
 

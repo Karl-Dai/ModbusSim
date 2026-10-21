@@ -1,27 +1,15 @@
 <script setup lang="ts">
+import type { main, appstate } from "../../wailsjs/go/models"
 import { ref, inject, watch, onMounted, onBeforeUnmount, computed, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { useI18n, showAlert, showConfirm } from 'shared-frontend'
 import EditSlaveDialog from './EditSlaveDialog.vue'
 import ClientConnectionsModal from './ClientConnectionsModal.vue'
-import type { ClientInfo } from '../types/clients'
 
 const { t } = useI18n()
 
-interface SlaveConnection {
-  id: string
-  bind_address: string
-  port: number
-  state: string
-  device_count: number
-  clients: ClientInfo[] | null
-}
-
-interface SlaveDevice {
-  slave_id: number
-  name: string
-  register_count: number
-}
+type SlaveConnection = main.ConnectionInfo
+type SlaveDevice = appstate.DeviceInfo
 
 interface TreeConnection {
   conn: SlaveConnection
@@ -36,17 +24,17 @@ interface TreeDevice {
 }
 
 const REGISTER_GROUPS = [
-  { type: 'coil', fc: 'FC01', labelKey: 'table.coil', descKey: 'connectionTree.coilDesc' as const },
-  { type: 'discrete_input', fc: 'FC02', labelKey: 'table.discreteInput', descKey: 'connectionTree.discreteInputDesc' as const },
-  { type: 'input_register', fc: 'FC04', labelKey: 'table.inputRegister', descKey: 'connectionTree.inputRegisterDesc' as const },
-  { type: 'holding_register', fc: 'FC03', labelKey: 'table.holdingRegister', descKey: 'connectionTree.holdingRegisterDesc' as const },
+  { Type: 'coil', fc: 'FC01', labelKey: 'table.coil', descKey: 'connectionTree.coilDesc' as const },
+  { Type: 'discrete_input', fc: 'FC02', labelKey: 'table.discreteInput', descKey: 'connectionTree.discreteInputDesc' as const },
+  { Type: 'input_register', fc: 'FC04', labelKey: 'table.inputRegister', descKey: 'connectionTree.inputRegisterDesc' as const },
+  { Type: 'holding_register', fc: 'FC03', labelKey: 'table.holdingRegister', descKey: 'connectionTree.holdingRegisterDesc' as const },
 ]
 
-const helpTooltip = ref<{ type: string; x: number; y: number } | null>(null)
+const helpTooltip = ref<{ Type: string; x: number; y: number } | null>(null)
 
 function showHelpTooltip(e: MouseEvent, type: string) {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  helpTooltip.value = { type, x: rect.right + 8, y: rect.top + rect.height / 2 }
+  helpTooltip.value = { Type: type, x: rect.right + 8, y: rect.top + rect.height / 2 }
 }
 
 function hideHelpTooltip() {
@@ -83,7 +71,7 @@ async function deleteCheckedConnections() {
     const failures: string[] = []
     for (const id of ids) {
       try {
-        await invoke('delete_slave_connection', { id })
+        await App.DeleteConnection(id)
         checkedConnections.value.delete(id)
         if (selectedConnectionId.value === id) {
           selectedConnectionId.value = null; selectedConnectionState.value = 'Stopped'
@@ -97,19 +85,19 @@ async function deleteCheckedConnections() {
   } finally { batchBusy.value = false }
 }
 const clientsConnectionId = ref<string | null>(null)
-const clientsConnection = computed(() => treeData.value.find(row => row.conn.id === clientsConnectionId.value)?.conn)
+const clientsConnection = computed(() => treeData.value.find(row => row.conn.ID === clientsConnectionId.value)?.conn)
 const clientsError = ref('')
 let clientsTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 async function refreshClients() {
   try {
-    const connections = await invoke<SlaveConnection[]>('list_slave_connections')
+    const connections = await App.ListConnections()
     if (disposed) return
     for (const row of treeData.value) {
-      const latest = connections.find(conn => conn.id === row.conn.id)
+      const latest = connections.find(conn => conn.ID === row.conn.ID)
       if (latest) {
         row.conn = latest
-        if (latest.id === selectedConnectionId.value) selectedConnectionState.value = latest.state
+        if (latest.ID === selectedConnectionId.value) selectedConnectionState.value = latest.State
       }
     }
     clientsError.value = ''
@@ -125,32 +113,32 @@ onBeforeUnmount(() => {
   clearTimeout(clientsTimer)
 })
 
-const contextMenu = ref({ show: false, x: 0, y: 0, type: '' as 'connection' | 'slave', connectionId: '', slaveId: 0, slaveName: '', connState: '' })
-const editSlave = ref({ show: false, connectionId: '', slaveId: 0, name: '' })
+const contextMenu = ref({ show: false, x: 0, y: 0, Type: '' as 'connection' | 'slave', connectionId: '', slaveId: 0, slaveName: '', connState: '' })
+const editSlave = ref({ show: false, connectionId: '', slaveId: 0, Name: '' })
 
 let treeLoadEpoch = 0
 async function loadTree() {
   const epoch = ++treeLoadEpoch
   try {
-    const connections = await invoke<SlaveConnection[]>('list_slave_connections')
+    const connections = await App.ListConnections()
     const newTree: TreeConnection[] = []
 
     for (const conn of connections) {
-      const existing = treeData.value.find(t => t.conn.id === conn.id)
-      const devices = await invoke<SlaveDevice[]>('list_slave_devices', { connectionId: conn.id })
+      const existing = treeData.value.find(t => t.conn.ID === conn.ID)
+      const devices = await App.ListDevices(conn.ID)
       newTree.push({
         conn,
         expanded: existing ? existing.expanded : true,
         devices: devices.map(d => ({
           device: d,
-          expanded: existing?.devices.find(ed => ed.device.slave_id === d.slave_id)?.expanded ?? true,
-          connectionId: conn.id,
+          expanded: existing?.devices.find(ed => ed.device.SlaveID === d.SlaveID)?.expanded ?? true,
+          connectionId: conn.ID,
         })),
       })
     }
     if (disposed || epoch !== treeLoadEpoch) return
     treeData.value = newTree
-    checkedConnections.value = new Set([...checkedConnections.value].filter(id => newTree.some(row => row.conn.id === id)))
+    checkedConnections.value = new Set([...checkedConnections.value].filter(id => newTree.some(row => row.conn.ID === id)))
   } catch (e) {
     console.error('Failed to load tree:', e)
   }
@@ -168,17 +156,17 @@ function toggleDevice(td: TreeDevice) {
 }
 
 function selectConnection(tc: TreeConnection) {
-  emit('connection-select', tc.conn.id, tc.conn.state)
+  emit('connection-select', tc.conn.ID, tc.conn.State)
 }
 
 function selectSlave(tc: TreeConnection, td: TreeDevice) {
-  selectedConnectionState.value = tc.conn.state
-  emit('slave-select', tc.conn.id, td.device.slave_id)
+  selectedConnectionState.value = tc.conn.State
+  emit('slave-select', tc.conn.ID, td.device.SlaveID)
 }
 
 function selectGroup(tc: TreeConnection, td: TreeDevice, regType: string) {
-  selectedConnectionState.value = tc.conn.state
-  emit('group-select', tc.conn.id, td.device.slave_id, regType)
+  selectedConnectionState.value = tc.conn.State
+  emit('group-select', tc.conn.ID, td.device.SlaveID, regType)
 }
 
 function showContextMenuForConnection(e: MouseEvent, tc: TreeConnection) {
@@ -187,11 +175,11 @@ function showContextMenuForConnection(e: MouseEvent, tc: TreeConnection) {
     show: true,
     x: e.clientX,
     y: e.clientY,
-    type: 'connection',
-    connectionId: tc.conn.id,
+    Type: 'connection',
+    connectionId: tc.conn.ID,
     slaveId: 0,
     slaveName: '',
-    connState: tc.conn.state,
+    connState: tc.conn.State,
   }
 }
 
@@ -201,10 +189,10 @@ function showContextMenuForSlave(e: MouseEvent, tc: TreeConnection, td: TreeDevi
     show: true,
     x: e.clientX,
     y: e.clientY,
-    type: 'slave',
-    connectionId: tc.conn.id,
-    slaveId: td.device.slave_id,
-    slaveName: td.device.name,
+    Type: 'slave',
+    connectionId: tc.conn.ID,
+    slaveId: td.device.SlaveID,
+    slaveName: td.device.Name,
     connState: '',
   }
 }
@@ -214,7 +202,7 @@ function ctxEditSlave() {
     show: true,
     connectionId: contextMenu.value.connectionId,
     slaveId: contextMenu.value.slaveId,
-    name: contextMenu.value.slaveName,
+    Name: contextMenu.value.slaveName,
   }
   closeContextMenu()
 }
@@ -236,7 +224,7 @@ function closeContextMenu() {
 async function ctxStartConnection() {
   closeContextMenu()
   try {
-    await invoke('start_slave_connection', { id: contextMenu.value.connectionId })
+    await App.StartConnection(contextMenu.value.connectionId)
     await loadTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -244,7 +232,7 @@ async function ctxStartConnection() {
 async function ctxStopConnection() {
   closeContextMenu()
   try {
-    await invoke('stop_slave_connection', { id: contextMenu.value.connectionId })
+    await App.StopConnection(contextMenu.value.connectionId)
     await loadTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -253,7 +241,7 @@ async function ctxDeleteConnection() {
   closeContextMenu()
   if (!(await showConfirm(t('errors.confirmDeleteConnection')))) return
   try {
-    await invoke('delete_slave_connection', { id: contextMenu.value.connectionId })
+    await App.DeleteConnection(contextMenu.value.connectionId)
     if (selectedConnectionId.value === contextMenu.value.connectionId) {
       selectedConnectionId.value = null
     }
@@ -265,10 +253,7 @@ async function ctxDeleteSlave() {
   closeContextMenu()
   if (!(await showConfirm(t('errors.confirmDeleteSlave')))) return
   try {
-    await invoke('remove_slave_device', {
-      connectionId: contextMenu.value.connectionId,
-      slaveId: contextMenu.value.slaveId,
-    })
+    await App.RemoveDevice(contextMenu.value.connectionId, contextMenu.value.slaveId)
     await loadTree()
   } catch (e) { await showAlert(String(e)) }
 }
@@ -278,41 +263,41 @@ async function ctxDeleteSlave() {
   <div class="connection-tree" @click="closeContextMenu">
     <div class="tree-header"><span>{{ t('tree.connections') }}</span><button class="tree-action" :aria-pressed="batchMode" :disabled="batchBusy" @click="batchMode = !batchMode; checkedConnections = new Set()">{{ t('parity.batchMode') }}</button></div>
     <div v-if="batchMode" class="tree-batch-actions">
-      <button class="tree-action" :disabled="batchBusy" @click="checkedConnections = new Set(treeData.map(row => row.conn.id))">{{ t('parity.selectAll') }}</button>
+      <button class="tree-action" :disabled="batchBusy" @click="checkedConnections = new Set(treeData.map(row => row.conn.ID))">{{ t('parity.selectAll') }}</button>
       <button class="tree-action" :disabled="batchBusy || !checkedConnections.size" @click="deleteCheckedConnections">{{ t('common.delete') }} ({{ checkedConnections.size }})</button>
     </div>
     <div v-if="treeData.length === 0" class="tree-empty">{{ t('tree.noConnection') }}</div>
 
-    <div v-for="tc in treeData" :key="tc.conn.id" class="tree-node-group">
+    <div v-for="tc in treeData" :key="tc.conn.ID" class="tree-node-group">
       <!-- Connection Node -->
       <div
-        :class="['tree-node connection-node', { selected: tc.conn.id === selectedConnectionId && selectedSlaveId === null }]"
-        @click.stop="selectConnection(tc)"
+        :class="['tree-node connection-node', { selected: tc.conn.ID === selectedConnectionId && selectedSlaveId === null }]"
+        role="button" tabindex="0" @click.stop="selectConnection(tc)" @keydown.enter.prevent="selectConnection(tc)" @keydown.space.prevent="selectConnection(tc)"
         @contextmenu.prevent="showContextMenuForConnection($event, tc)"
       >
-        <input v-if="batchMode" type="checkbox" :checked="checkedConnections.has(tc.conn.id)" :disabled="batchBusy" :aria-label="`${tc.conn.bind_address}:${tc.conn.port}`" @click.stop @change="toggleChecked(tc.conn.id)" />
+        <input v-if="batchMode" type="checkbox" :checked="checkedConnections.has(tc.conn.ID)" :disabled="batchBusy" :aria-label="`${tc.conn.BindAddress}:${tc.conn.Port}`" @click.stop @change="toggleChecked(tc.conn.ID)" />
         <span class="node-arrow" @click.stop="toggleConnection(tc)">{{ tc.expanded ? '▼' : '▶' }}</span>
-        <span :class="['node-status', tc.conn.state === 'Running' ? 'running' : 'stopped']"></span>
-        <span class="node-label">{{ tc.conn.bind_address }}:{{ tc.conn.port }}</span>
-        <button v-if="tc.conn.clients != null" class="clients-badge"
-          :class="{ active: !clientsError && tc.conn.clients.length > 0 }"
-          :title="t('clients.title')" :aria-label="t('clients.title') + ': ' + (clientsError ? t('clients.unavailable') : t('clients.count', { n: tc.conn.clients.length }))"
-          @click.stop="clientsConnectionId = tc.conn.id">
-          {{ clientsError ? '—' : t('clients.count', { n: tc.conn.clients.length }) }}
+        <span :class="['node-status', tc.conn.State === 'Running' ? 'running' : 'stopped']"></span>
+        <span class="node-label">{{ tc.conn.BindAddress }}:{{ tc.conn.Port }}</span>
+        <button v-if="tc.conn.Clients != null" class="clients-badge"
+          :class="{ active: !clientsError && tc.conn.Clients.length > 0 }"
+          :title="t('clients.title')" :aria-label="t('clients.title') + ': ' + (clientsError ? t('clients.unavailable') : t('clients.count', { n: tc.conn.Clients.length }))"
+          @click.stop="clientsConnectionId = tc.conn.ID">
+          {{ clientsError ? '—' : t('clients.count', { n: tc.conn.Clients.length }) }}
         </button>
       </div>
 
       <!-- Slave Nodes -->
       <template v-if="tc.expanded">
-        <div v-for="td in tc.devices" :key="td.device.slave_id" class="tree-child">
+        <div v-for="td in tc.devices" :key="td.device.SlaveID" class="tree-child">
           <div
-            :class="['tree-node slave-node', { selected: tc.conn.id === selectedConnectionId && td.device.slave_id === selectedSlaveId && selectedRegisterType === null }]"
-            @click.stop="selectSlave(tc, td)"
+            :class="['tree-node slave-node', { selected: tc.conn.ID === selectedConnectionId && td.device.SlaveID === selectedSlaveId && selectedRegisterType === null }]"
+            role="button" tabindex="0" @click.stop="selectSlave(tc, td)" @keydown.enter.prevent="selectSlave(tc, td)" @keydown.space.prevent="selectSlave(tc, td)"
             @contextmenu.prevent="showContextMenuForSlave($event, tc, td)"
           >
             <span class="node-arrow" @click.stop="toggleDevice(td)">{{ td.expanded ? '▼' : '▶' }}</span>
-            <span class="node-label" :title="td.device.name?.trim() || t('station.defaultName', { id: td.device.slave_id })">
-              {{ td.device.name?.trim() ? t('station.named', { name: td.device.name.trim(), id: td.device.slave_id }) : t('station.defaultName', { id: td.device.slave_id }) }}
+            <span class="node-label" :title="td.device.Name?.trim() || t('station.defaultName', { id: td.device.SlaveID })">
+              {{ td.device.Name?.trim() ? t('station.named', { name: td.device.Name.trim(), id: td.device.SlaveID }) : t('station.defaultName', { id: td.device.SlaveID }) }}
             </span>
           </div>
 
@@ -320,12 +305,12 @@ async function ctxDeleteSlave() {
           <template v-if="td.expanded">
             <div
               v-for="group in REGISTER_GROUPS"
-              :key="group.type"
-              :class="['tree-node group-node', { selected: tc.conn.id === selectedConnectionId && td.device.slave_id === selectedSlaveId && selectedRegisterType === group.type }]"
-              @click.stop="selectGroup(tc, td, group.type)"
+              :key="group.Type"
+              :class="['tree-node group-node', { selected: tc.conn.ID === selectedConnectionId && td.device.SlaveID === selectedSlaveId && selectedRegisterType === group.Type }]"
+              role="button" tabindex="0" @click.stop="selectGroup(tc, td, group.Type)" @keydown.enter.prevent="selectGroup(tc, td, group.Type)" @keydown.space.prevent="selectGroup(tc, td, group.Type)"
             >
               <span class="node-label" :title="`${group.fc} ${t(group.labelKey)}`">{{ group.fc }} {{ t(group.labelKey) }}</span>
-              <span class="help-icon" @mouseenter="showHelpTooltip($event, group.type)" @mouseleave="hideHelpTooltip">?</span>
+              <span class="help-icon" @mouseenter="showHelpTooltip($event, group.Type)" @mouseleave="hideHelpTooltip">?</span>
             </div>
           </template>
         </div>
@@ -339,7 +324,7 @@ async function ctxDeleteSlave() {
       :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
       @click.stop
     >
-      <template v-if="contextMenu.type === 'connection'">
+      <template v-if="contextMenu.Type === 'connection'">
         <div
           v-if="contextMenu.connState === 'Stopped'"
           class="context-menu-item"
@@ -352,22 +337,22 @@ async function ctxDeleteSlave() {
         >{{ t('toolbar.stopConnection') }}</div>
         <div class="context-menu-item danger" @click="ctxDeleteConnection">{{ t('tree.deleteConnection') }}</div>
       </template>
-      <template v-if="contextMenu.type === 'slave'">
+      <template v-if="contextMenu.Type === 'slave'">
         <div class="context-menu-item" @click="ctxEditSlave">{{ t('tree.editSlave') }}</div>
         <div class="context-menu-item danger" @click="ctxDeleteSlave">{{ t('tree.deleteSlave') }}</div>
       </template>
     </div>
 
-    <ClientConnectionsModal v-if="clientsConnection && clientsConnection.clients != null"
-      :label="`${clientsConnection.bind_address}:${clientsConnection.port}`"
-      :clients="clientsConnection.clients" :error="clientsError"
+    <ClientConnectionsModal v-if="clientsConnection && clientsConnection.Clients != null"
+      :label="`${clientsConnection.BindAddress}:${clientsConnection.Port}`"
+      :clients="clientsConnection.Clients" :error="clientsError"
       @close="clientsConnectionId = null" />
 
     <EditSlaveDialog
       :show="editSlave.show"
       :connection-id="editSlave.connectionId"
       :original-slave-id="editSlave.slaveId"
-      :initial-name="editSlave.name"
+      :initial-name="editSlave.Name"
       @close="editSlave.show = false"
       @updated="onSlaveUpdated"
     />
@@ -379,13 +364,14 @@ async function ctxDeleteSlave() {
         class="help-tooltip"
         :style="{ left: helpTooltip.x + 'px', top: helpTooltip.y + 'px' }"
       >
-        {{ (() => { const g = REGISTER_GROUPS.find(g => g.type === helpTooltip!.type); return g ? t(g.descKey) : '' })() }}
+        {{ (() => { const g = REGISTER_GROUPS.find(g => g.Type === helpTooltip!.Type); return g ? t(g.descKey) : '' })() }}
       </div>
     </Teleport>
   </div>
 </template>
 
 <style scoped>
+.tree-node:focus-visible { outline: 2px solid var(--c-blue); outline-offset: -2px; }
 .tree-header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .tree-action { padding: 3px 5px; border: 1px solid var(--c-surface1); border-radius: 4px; background: transparent; color: var(--c-subtext1); font-size: 11px; cursor: pointer; }
 .tree-action:hover { background: var(--c-surface0); }

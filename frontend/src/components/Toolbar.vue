@@ -4,13 +4,11 @@ import ConnectionSettingsDialog from './ConnectionSettingsDialog.vue'
 import ToolsDialog from './ToolsDialog.vue'
 import AboutDialog from './AboutDialog.vue'
 import { computed, ref, inject, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { save, open } from '@tauri-apps/plugin-dialog'
+import * as App from '../../wailsjs/go/main/App'
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
 import {
   useI18n,
-  useUpdateProgress,
-  localizeUpdateError,
-  showAlert,
+      showAlert,
   showConfirm,
 } from 'shared-frontend'
 import NewConnectionDialog from './NewConnectionDialog.vue'
@@ -45,13 +43,13 @@ async function run(action: () => unknown) {
   try { await action() } catch (error) { await showAlert(String(error)) } finally { busy.value = false }
 }
 async function changeAll(action: 'start' | 'stop') {
-  const conns = await invoke<Array<{ id: string; state: string }>>('list_slave_connections')
-  const targets = conns.filter(c => c.state !== (action === 'start' ? 'Running' : 'Stopped'))
+  const conns = await App.ListConnections()
+  const targets = conns.filter(c => c.State !== (action === 'start' ? 'Running' : 'Stopped'))
   const failures: string[] = []
   for (const [index, conn] of targets.entries()) {
     statusText.value = `${index + 1} / ${targets.length}`
-    try { await invoke(`${action}_slave_connection`, { id: conn.id }) }
-    catch (error) { failures.push(`${conn.id}: ${String(error)}`) }
+    try { await (action === 'start' ? App.StartConnection(conn.ID) : App.StopConnection(conn.ID)) }
+    catch (error) { failures.push(`${conn.ID}: ${String(error)}`) }
   }
   refreshTree()
   statusText.value = t('parity.bulkResult', { n: targets.length - failures.length, failed: failures.length })
@@ -61,7 +59,7 @@ async function openProjectByPath() {
   const path = await showPrompt(t('parity.enterProjectPath'), currentProjectPath.value ?? '')
   if (!path?.trim()) return
   try {
-    await invoke('load_project_file', { path: path.trim() })
+    await App.LoadProject(path.trim())
     currentProjectPath.value = path.trim()
     resetWorkspaceView()
   } catch (error) { await showAlert(String(error)) }
@@ -75,41 +73,11 @@ const currentProjectPath = ref<string | null>(null)
 const showNewConn = ref(false)
 const showNewSlave = ref(false)
 
-type UpdateMeta = { version: string; notes: string; pub_date?: string | null }
-const checkUpdate = inject<(force?: boolean) => Promise<UpdateMeta | null>>('checkUpdate')!
-const updateChecking = ref(false)
-const updateProgress = useUpdateProgress(t)
-const updateBusy = computed(() => updateChecking.value || updateProgress.active.value)
-const updateButtonLabel = computed(() =>
-  updateProgress.active.value
-    ? updateProgress.label.value
-    : updateChecking.value
-      ? t('toolbar.checkingUpdate')
-      : t('toolbar.checkUpdate'),
-)
-
-async function manualCheckUpdate() {
-  if (updateBusy.value) return
-  updateChecking.value = true
-  let message: string | null = null
-  try {
-    const meta = await checkUpdate(true)
-    if (!meta) message = t('toolbar.alreadyLatest')
-  } catch (e) {
-    message = `${t('toolbar.updateCheckFailed')}: ${localizeUpdateError(e, t)}`
-  } finally {
-    updateChecking.value = false
-  }
-  if (message) await showAlert(message)
-}
-
 async function openProject() {
   try {
-    const path = await open({
-      filters: [{ name: 'Modbus Project', extensions: ['modbusproj'] }],
-    })
+    const path = await App.OpenFileDialog([{ Name: 'Modbus Project', Extensions: ['modbusproj'] }])
     if (!path) return
-    await invoke('load_project_file', { path })
+    await App.LoadProject(path)
     currentProjectPath.value = path as string
     selectedConnectionId.value = null
     selectedSlaveId.value = null
@@ -121,18 +89,15 @@ async function openProject() {
 async function saveProject() {
   if (!currentProjectPath.value) return saveProjectAs()
   try {
-    await invoke('save_project_file', { path: currentProjectPath.value })
+    await App.SaveProject(currentProjectPath.value)
   } catch (e) { await showAlert(String(e)) }
 }
 
 async function saveProjectAs() {
   try {
-    const path = await save({
-      filters: [{ name: 'Modbus Project', extensions: ['modbusproj'] }],
-      defaultPath: 'untitled.modbusproj',
-    })
+    const path = await App.SaveFileDialog('untitled.modbusproj', [{ Name: 'Modbus Project', Extensions: ['modbusproj'] }])
     if (!path) return
-    await invoke('save_project_file', { path })
+    await App.SaveProject(path)
     currentProjectPath.value = path
   } catch (e) { await showAlert(String(e)) }
 }
@@ -140,7 +105,7 @@ async function saveProjectAs() {
 async function startConnection() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('start_slave_connection', { id: selectedConnectionId.value })
+    await App.StartConnection(selectedConnectionId.value)
     selectedConnectionState.value = 'Running'
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
@@ -149,7 +114,7 @@ async function startConnection() {
 async function stopConnection() {
   if (!selectedConnectionId.value) return
   try {
-    await invoke('stop_slave_connection', { id: selectedConnectionId.value })
+    await App.StopConnection(selectedConnectionId.value)
     selectedConnectionState.value = 'Stopped'
     refreshTree()
   } catch (e) { await showAlert(String(e)) }
@@ -159,7 +124,7 @@ async function closeConnection() {
   if (!selectedConnectionId.value) return
   if (!(await showConfirm(t('errors.confirmDeleteConnection')))) return
   try {
-    await invoke('delete_slave_connection', { id: selectedConnectionId.value })
+    await App.DeleteConnection(selectedConnectionId.value)
     selectedConnectionId.value = null
     selectedConnectionState.value = 'Stopped'
     refreshTree()
@@ -174,7 +139,7 @@ const actions = computed(() => ({
   saveAs: { id: 'save-as', label: t('toolbar.saveAsTitle'), shortcut: shortcuts.saveAs, action: () => run(saveProjectAs) },
   newConnection: { id: 'new-connection', label: t('toolbar.newConnection'), icon: 'add', action: () => { showNewConn.value = true } },
   newSlave: { id: 'new-slave', label: t('toolbar.newSlave'), icon: 'device', disabled: !selectedConnectionId.value, action: () => { showNewSlave.value = true } },
-  start: { id: 'start', label: t('toolbar.start'), icon: 'play', tone: 'start', separatorBefore: true, disabled: !selectedConnectionId.value || selectedConnectionState.value === 'Running', action: () => run(startConnection) },
+  Start: { id: 'start', label: t('toolbar.start'), icon: 'play', tone: 'start', separatorBefore: true, disabled: !selectedConnectionId.value || selectedConnectionState.value === 'Running', action: () => run(startConnection) },
   stop: { id: 'stop', label: t('toolbar.stop'), icon: 'stop', tone: 'stop', disabled: !selectedConnectionId.value || selectedConnectionState.value === 'Stopped', action: () => run(stopConnection) },
   startAll: { id: 'start-all', label: t('toolbar.startAllConnections'), separatorBefore: true, action: () => run(() => changeAll('start')) },
   stopAll: { id: 'stop-all', label: t('toolbar.stopAllConnections'), action: () => run(() => changeAll('stop')) },
@@ -186,7 +151,7 @@ const menus = computed<ToolbarMenuDefinition[]>(() => [
   { id: 'file', label: t('toolbar.menuFile'), items: [actions.value.open, actions.value.openPath, actions.value.save, actions.value.saveAs] },
   { id: 'connection', label: t('toolbar.menuConnection'), items: [
     actions.value.newConnection, actions.value.newSlave, actions.value.settings,
-    actions.value.start, actions.value.stop, actions.value.startAll, actions.value.stopAll, actions.value.remove,
+    actions.value.Start, actions.value.stop, actions.value.startAll, actions.value.stopAll, actions.value.remove,
   ] },
   { id: 'registers', label: t('parity.menuRegisters'), items: [
     { id: 'import-csv', label: t('parity.importCsv'), disabled: selectedSlaveId.value === null || selectedConnectionState.value !== 'Stopped', action: registerActions.importCsv },
@@ -201,14 +166,14 @@ const menus = computed<ToolbarMenuDefinition[]>(() => [
     themeItem('dark', 'parity.themeDark'),
   ] },
   { id: 'help', label: t('parity.menuHelp'), items: [
-    { id: 'update', label: updateButtonLabel.value, disabled: updateBusy.value, busy: updateBusy.value, action: manualCheckUpdate },
+    { id: 'releases', label: t('parity.releases'), action: () => BrowserOpenURL('https://github.com/Karl-Dai/ModbusSim/releases') },
     { id: 'about', label: t('about.title'), action: () => { showAbout.value = true } },
   ] },
 ])
 const quickActions = computed<ToolbarAction[]>(() => [
-  actions.value.newConnection, actions.value.newSlave, actions.value.save, actions.value.start, actions.value.stop,
+  actions.value.newConnection, actions.value.newSlave, actions.value.save, actions.value.Start, actions.value.stop,
 ])
-const toolbarStatus = computed(() => updateBusy.value ? updateButtonLabel.value : statusText.value)
+const toolbarStatus = statusText
 </script>
 
 

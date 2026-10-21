@@ -1,0 +1,24 @@
+slave 1 replied to "Read Holding Registers", but returned no data
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 06  Length                  6 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+03     Function code           0x03 = Read Holding Registers
+00     Byte count              0 data bytes
+
+── Notes ──
+Auto-detected as Modbus TCP: bytes 3-4 are 00 00 and the length field matches the actual byte count
+The byte count says 0 data bytes, but 3 follow; the frame may be truncated or have extra bytes
+The byte count is 0; the slave returned no data
+
+── Technical details ──
+Transport: Modbus TCP (12 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 6 (6 bytes actually follow)
+Unit ID: 1
+Function: 0x03 (Read Holding Registers)
+Byte count: 0
+PDU: 03 00 00 00 01

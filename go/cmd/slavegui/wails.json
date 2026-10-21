@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ModbusSlave",
+  "outputfilename": "ModbusSlave",
+  "frontend:dir": "../../../frontend",
+  "frontend:install": "npm ci --ignore-scripts --prefix ..",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev -- --host 127.0.0.1",
+  "frontend:dev:serverUrl": "auto",
+  "assetdir": "assets/dist",
+  "wailsjsdir": "../../../frontend",
+  "bindings": {
+    "ts_generation": {
+      "outputType": "interfaces"
+    }
+  },
+  "info": {
+    "productName": "ModbusSlave",
+    "productVersion": "0.17.9",
+    "comments": "Go/Wails Modbus simulator"
+  }
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+import * as App from '../../wailsjs/go/main/App'
 import { ModalShell, useI18n } from 'shared-frontend'
 const emit = defineEmits<{ close: [] }>()
 const { t, locale } = useI18n()
@@ -12,14 +12,14 @@ async function calculate() {
   busy.value = true; result.value = ''; error.value = ''
   try {
     if (tool.value === 'address') {
-      const row = await invoke<{ protocol_address: number; register_type: string }>('convert_plc_to_modbus', { request: { address: plcAddress.value } })
-      result.value = `${t('parity.protocolAddress')}: ${row.protocol_address}\n${t('parity.registerType')}: ${row.register_type}`
+      const row = await App.ConvertPLCToModbus(String(plcAddress.value))
+      result.value = `${t('parity.protocolAddress')}: ${row.ProtocolAddress}\n${t('parity.registerType')}: ${row.RegisterType}`
     } else if (tool.value === 'checksum') {
-      const [crc, lrc] = await Promise.all([invoke<string>('calculate_crc16', { data: data.value }), invoke<string>('calculate_lrc', { data: data.value })])
+      const [crc, lrc] = await Promise.all([App.CalculateCRC16(data.value), App.CalculateLRC(data.value)])
       result.value = `CRC16: ${crc}\n${t('parity.wireOrder')}: ${crc.slice(2)} ${crc.slice(0, 2)}\nLRC: ${lrc}`
     } else {
       const lang = locale.value.startsWith('zh') ? 'zh' : 'en'
-      result.value = await invoke<string>('inspect_modbus_frame', { data: data.value, transport: transport.value, direction: direction.value, lang })
+      result.value = await App.InspectModbusFrame(data.value, transport.value, direction.value, lang)
     }
   } catch (e) { error.value = String(e) }
   finally { busy.value = false }

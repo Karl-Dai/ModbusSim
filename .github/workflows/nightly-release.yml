@@ -169,10 +169,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
             CHANGELOG.md \
-            crates/modbussim-app/Cargo.toml \
-            crates/modbussim-app/tauri.conf.json \
-            crates/modbusmaster-app/Cargo.toml \
-            crates/modbusmaster-app/tauri.conf.json
+            go/cmd/slavegui/app.go \
+            go/cmd/slavegui/wails.json \
+            go/cmd/mastergui/app.go \
+            go/cmd/mastergui/wails.json
           git commit -m "chore(release): prepare v$NEXT_VERSION"
           git push origin "$RELEASE_BRANCH"
 

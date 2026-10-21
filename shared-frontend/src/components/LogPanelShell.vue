@@ -1,26 +1,23 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="T = LogEntry">
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useResizableColumns } from '../composables/useResizableColumns'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useI18n } from '../i18n'
 import { useLogPanel, type LogPanelDataSource } from '../composables/useLogPanel'
-import { useLogFilter } from '../composables/useLogFilter'
+import type { LogEntry } from '../types/modbus'
+import { defaultLogFields, type LogFields, useLogFilter } from '../composables/useLogFilter'
 
 interface ConnectionItem {
   id: string
   label: string
 }
 
-interface LogAppendedEvent {
-  connection_id: string
-}
-
 interface Props {
+  fields?: LogFields<T>
   expanded: boolean
   /** Always-up-to-date list of connections from the parent. */
   connections: ConnectionItem[]
   /** Backend command bindings — see LogPanelDataSource. */
-  source: LogPanelDataSource
+  source: LogPanelDataSource<T>
   /** Filename prefix for the CSV export. */
   exportPrefix?: string
   /** When set, will auto-select this id when present in `connections`. */
@@ -41,19 +38,20 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{ (e: 'toggle'): void }>()
 
 const { t, locale } = useI18n()
+const fields = props.fields ?? defaultLogFields as unknown as LogFields<T>
 const { logs, isLoading, error, loadLogs, clearLogs, exportLogsCsv, reset } = useLogPanel(props.source)
-const { searchQuery, directionFilter, fcFilter, filteredLogs, availableFcs, filterSummary } = useLogFilter(logs)
+const { searchQuery, directionFilter, fcFilter, filteredLogs, availableFcs, filterSummary } = useLogFilter(logs, fields)
 
 const paused = ref(false)
 const autoScroll = ref(true)
 const logBody = ref<HTMLElement | null>(null)
 const { widths, startResize, resizeWithKeyboard } = useResizableColumns({ time: 110, direction: 70, function: 100, detail: 500 }, { time: 80, direction: 60, function: 80, detail: 160 })
 watch(filteredLogs, async () => { if (autoScroll.value && !paused.value) { await nextTick(); if (logBody.value) logBody.value.scrollTop = logBody.value.scrollHeight } })
-function filteredText() { return filteredLogs.value.map(log => [fmtTimestamp(log.timestamp), log.direction.toUpperCase(), props.fcFormatter(log.function_code), log.detail].join('\t')).join('\n') }
+function filteredText() { return filteredLogs.value.map(log => [fmtTimestamp(fields.timestamp(log)), fields.direction(log).toUpperCase(), props.fcFormatter(fields.functionCode(log)), fields.detail(log)].join('\t')).join('\n') }
 async function copyLogs() { try { await navigator.clipboard.writeText(filteredText()) } catch (e) { error.value = String(e) } }
 async function exportFiltered() {
   const quote = (text: string) => '"' + text.replaceAll('"', '""') + '"'
-  const csv = '\uFEFF' + ['timestamp,direction,function_code,detail', ...filteredLogs.value.map(log => [log.timestamp, log.direction, log.function_code, log.detail].map(quote).join(','))].join('\r\n')
+  const csv = '\uFEFF' + ['timestamp,direction,function_code,detail', ...filteredLogs.value.map(log => [fields.timestamp(log), fields.direction(log), fields.functionCode(log), fields.detail(log)].map(quote).join(','))].join('\r\n')
   try {
     if (props.source.saveFile) await props.source.saveFile(csv, `${props.exportPrefix}_filtered.csv`)
     else {
@@ -63,7 +61,7 @@ async function exportFiltered() {
 }
 watch(paused, value => { if (!value) void scheduleReload() })
 const selectedConnId = ref('')
-let unlisten: UnlistenFn | null = null
+let unlisten: (() => void) | null = null
 let reloadInFlight = false
 let reloadAgain = false
 let disposed = false
@@ -122,11 +120,10 @@ function fmtTimestamp(ts: string): string {
 
 async function startListening() {
   if (unlisten) return
-  const removeListener = await listen<LogAppendedEvent>('log-appended', (event) => {
-    if (event.payload.connection_id === selectedConnId.value) {
-      scheduleReload()
-    }
-  })
+  const onAppend = (id: string) => { if (id === selectedConnId.value) void scheduleReload() }
+  const removeListener = props.source.subscribe
+    ? await props.source.subscribe(onAppend)
+    : () => {}
   if (disposed) removeListener()
   else unlisten = removeListener
 }
@@ -215,10 +212,10 @@ onUnmounted(() => { disposed = true; stopListening(); reset() })
         </thead>
         <tbody>
           <tr v-for="(log, idx) in filteredLogs" :key="idx">
-            <td class="col-time">{{ fmtTimestamp(log.timestamp) }}</td>
-            <td :class="['col-dir', (log.direction || '').toLowerCase()]">{{ (log.direction || '').toUpperCase() }}</td>
-            <td class="col-func">{{ fcFormatter(log.function_code) }}</td>
-            <td class="col-detail">{{ log.detail }}</td>
+            <td class="col-time">{{ fmtTimestamp(fields.timestamp(log)) }}</td>
+            <td :class="['col-dir', (fields.direction(log) || '').toLowerCase()]">{{ (fields.direction(log) || '').toUpperCase() }}</td>
+            <td class="col-func">{{ fcFormatter(fields.functionCode(log)) }}</td>
+            <td class="col-detail">{{ fields.detail(log) }}</td>
           </tr>
         </tbody>
       </table>

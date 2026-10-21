@@ -1,0 +1,27 @@
+The master asks slave 1 to "Write Single Coil": set coil 00004 to an unknown value
+
+── Data details ──
+00004 = OFF
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 06  Length                  6 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+05     Function code           0x05 = Write Single Coil
+00 03  Address                 protocol address 3, PLC address 00004
+12 34  Write value             0x1234, not a standard value (0xFF00=ON, 0x0000=OFF)
+
+── Notes ──
+A coil write value should be 0xFF00 (ON) or 0x0000 (OFF), got 0x1234
+
+── Technical details ──
+Transport: Modbus TCP (12 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 6 (6 bytes actually follow)
+Unit ID: 1
+Function: 0x05 (Write Single Coil)
+Address: 3 (PLC 00004)
+Write value: 0x1234 (an unknown value)
+PDU: 05 00 03 12 34

@@ -1,0 +1,33 @@
+The master asks slave 1 to "Write Multiple Coils": write 3 coils starting from 00001 (2 ON / 1 OFF)
+
+── Data details ──
+00001 = ON
+00002 = OFF
+00003 = ON
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 09  Length                  9 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+0F     Function code           0x0F = Write Multiple Coils
+00 00  Start address           protocol address 0, PLC address 00001
+00 03  Write quantity          write 3 coils
+02     Byte count              2 bytes of write data
+05 00  Write data              each bit is the state to write to one coil (LSB first within each byte)
+
+── Notes ──
+Writing 3 coils needs 1 data bytes, but the byte count says 2
+
+── Technical details ──
+Transport: Modbus TCP (15 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 9 (9 bytes actually follow)
+Unit ID: 1
+Function: 0x0F (Write Multiple Coils)
+Start address: 0 (PLC 00001)
+Write quantity: 3
+Byte count: 2
+Data: 05 00
+PDU: 0F 00 00 00 03 02 05 00

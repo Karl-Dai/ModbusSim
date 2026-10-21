@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, inject, watch, onMounted, onUnmounted, computed, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import * as App from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { useI18n } from 'shared-frontend'
-import type { ScanGroupInfo, RegisterValueDto, PollDataPayload, ReadResultDto } from '../types'
+import type { ScanGroupInfo, RegisterValueDto, PollDataPayload, PollErrorPayload } from '../types'
 
 const { t } = useI18n()
 
@@ -41,32 +41,32 @@ let unlisten: (() => void) | null = null
 let unlistenError: (() => void) | null = null
 let pollTimer: number | null = null
 
-async function setupListeners() {
+function setupListeners() {
   if (unlisten) { unlisten(); unlisten = null }
   if (unlistenError) { unlistenError(); unlistenError = null }
 
-  unlisten = await listen<PollDataPayload>('master-poll-data', (event) => {
-    const payload = event.payload
+  unlisten = EventsOn('master-poll-data', (event: PollDataPayload) => {
+    const payload = event
     if (
-      payload.connection_id === selectedConnectionId.value &&
+      payload.ConnectionID === selectedConnectionId.value &&
       selectedScanGroup.value &&
-      payload.scan_group_id === selectedScanGroup.value.id
+      payload.ScanGroupID === selectedScanGroup.value.ID
     ) {
-      values.value = payload.result.values
-      lastUpdated.value = payload.result.timestamp
+      values.value = payload.Result.Values
+      lastUpdated.value = payload.Result.Timestamp
       errorMsg.value = ''
       emitSelection()
     }
   })
 
-  unlistenError = await listen<{ connection_id: string; scan_group_id: string; error: string }>('master-poll-error', (event) => {
-    const payload = event.payload
+  unlistenError = EventsOn('master-poll-error', (event: PollErrorPayload) => {
+    const payload = event
     if (
-      payload.connection_id === selectedConnectionId.value &&
+      payload.ConnectionID === selectedConnectionId.value &&
       selectedScanGroup.value &&
-      payload.scan_group_id === selectedScanGroup.value.id
+      payload.ScanGroupID === selectedScanGroup.value.ID
     ) {
-      errorMsg.value = payload.error
+      errorMsg.value = payload.Error
     }
   })
 }
@@ -84,31 +84,23 @@ function stopPollTimer() {
 
 let selectionGeneration = 0
 async function fetchCachedData(refresh = false) {
-  const connectionId = selectedConnectionId.value
-  const groupId = selectedScanGroup.value?.id
-  const generation = selectionGeneration
-  if (!connectionId || !groupId) return
+  const id = selectedConnectionId.value, groupID = selectedScanGroup.value?.ID, generation = selectionGeneration
+  if (!id || !groupID) return
   try {
-    const data = await invoke<ReadResultDto | null>('get_poll_data', {
-      connectionId, groupId, refresh,
-    })
-    if (generation !== selectionGeneration) return
-    if (data) {
-      values.value = data.values
-      lastUpdated.value = data.timestamp
-      if (refresh) errorMsg.value = ''
-      emitSelection()
-    }
+    const data = await (refresh ? App.RefreshScanGroup(id, groupID) : App.GetPollData(id, groupID))
+    if (generation !== selectionGeneration || id !== selectedConnectionId.value || groupID !== selectedScanGroup.value?.ID) return
+    if (data) { values.value = data.Values; lastUpdated.value = data.Timestamp; if (refresh || data.Error) errorMsg.value = data.Error ?? ''; emitSelection() }
   } catch (e) { if (generation === selectionGeneration) errorMsg.value = String(e) }
 }
 
 watch(dataRefreshKey, () => { void fetchCachedData(true) })
 
-onMounted(async () => { await setupListeners() })
+onMounted(setupListeners)
 onUnmounted(() => { selectionGeneration++; unlisten?.(); unlistenError?.(); stopPollTimer() })
 
-watch([selectedConnectionId, selectedScanGroup], async () => {
+watch([selectedConnectionId, selectedScanGroup], async (_value, _old, onCleanup) => {
   const generation = ++selectionGeneration
+  onCleanup(() => { selectionGeneration++; stopPollTimer() })
   selectedIndices.value.clear()
   values.value = []
   lastUpdated.value = ''
@@ -146,7 +138,7 @@ function toFloat32(hi: number, lo: number): string {
 
 const isBoolScanGroup = computed(() => {
   if (!selectedScanGroup.value) return false
-  return selectedScanGroup.value.function === 'read_coils' || selectedScanGroup.value.function === 'read_discrete_inputs'
+  return selectedScanGroup.value.Function === 'read_coils' || selectedScanGroup.value.Function === 'read_discrete_inputs'
 })
 
 const isFloat = computed(() => displayFormat.value === 'float32_abcd' || displayFormat.value === 'float32_cdab')
@@ -155,20 +147,20 @@ const filteredValues = computed(() => {
   if (!searchFilter.value) return values.value
   const q = searchFilter.value.toLowerCase()
   return values.value.filter(v => {
-    const hexAddr = '0x' + v.address.toString(16).toUpperCase().padStart(4, '0')
+    const hexAddr = '0x' + v.Address.toString(16).toUpperCase().padStart(4, '0')
     return hexAddr.toLowerCase().includes(q) ||
-      v.address.toString().includes(q) ||
-      v.display_value.toLowerCase().includes(q)
+      v.Address.toString().includes(q) ||
+      v.DisplayValue.toLowerCase().includes(q)
   })
 })
 
 // Build display rows: for float32 formats, merge consecutive register pairs
 interface DisplayRow {
-  address: number
+  Address: number
   rawDisplay: string
   valueDisplay: string
-  is_bool: boolean
-  raw_value: number
+  IsBool: boolean
+  RawValue: number
   // original indices for selection
   sourceIndices: number[]
 }
@@ -179,11 +171,11 @@ const displayRows = computed<DisplayRow[]>(() => {
 
   if (isBoolScanGroup.value) {
     return src.map((v, i) => ({
-      address: v.address,
+      Address: v.Address,
       rawDisplay: '',
       valueDisplay: '',
-      is_bool: true,
-      raw_value: Number(v.raw_value),
+      IsBool: true,
+      RawValue: Number(v.RawValue),
       sourceIndices: [i],
     }))
   }
@@ -193,15 +185,15 @@ const displayRows = computed<DisplayRow[]>(() => {
   if (fmt === 'float32_abcd' || fmt === 'float32_cdab') {
     const rows: DisplayRow[] = []
     for (let i = 0; i < src.length - 1; i += 2) {
-      const hi = Number(src[i].raw_value)
-      const lo = Number(src[i + 1].raw_value)
+      const hi = Number(src[i].RawValue)
+      const lo = Number(src[i + 1].RawValue)
       const fv = fmt === 'float32_abcd' ? toFloat32(hi, lo) : toFloat32(lo, hi)
       rows.push({
-        address: src[i].address,
+        Address: src[i].Address,
         rawDisplay: `${fmtHex(hi)} ${fmtHex(lo)}`,
         valueDisplay: fv,
-        is_bool: false,
-        raw_value: hi,
+        IsBool: false,
+        RawValue: hi,
         sourceIndices: [i, i + 1],
       })
     }
@@ -209,11 +201,11 @@ const displayRows = computed<DisplayRow[]>(() => {
     if (src.length % 2 !== 0) {
       const last = src[src.length - 1]
       rows.push({
-        address: last.address,
-        rawDisplay: fmtHex(Number(last.raw_value)),
+        Address: last.Address,
+        rawDisplay: fmtHex(Number(last.RawValue)),
         valueDisplay: '-',
-        is_bool: false,
-        raw_value: Number(last.raw_value),
+        IsBool: false,
+        RawValue: Number(last.RawValue),
         sourceIndices: [src.length - 1],
       })
     }
@@ -221,7 +213,7 @@ const displayRows = computed<DisplayRow[]>(() => {
   }
 
   return src.map((v, i) => {
-    const raw = Number(v.raw_value)
+    const raw = Number(v.RawValue)
     let valueDisplay: string
     switch (fmt) {
       case 'signed': valueDisplay = fmtSigned(raw); break
@@ -230,11 +222,11 @@ const displayRows = computed<DisplayRow[]>(() => {
       default: valueDisplay = raw.toString(); break
     }
     return {
-      address: v.address,
+      Address: v.Address,
       rawDisplay: raw.toString(),
       valueDisplay,
-      is_bool: false,
-      raw_value: raw,
+      IsBool: false,
+      RawValue: raw,
       sourceIndices: [i],
     }
   })
@@ -305,7 +297,7 @@ const fcLabel = computed(() => {
     read_holding_registers: '3x Holding Registers',
     read_input_registers: '4x Input Registers',
   }
-  return map[selectedScanGroup.value.function] || selectedScanGroup.value.function
+  return map[selectedScanGroup.value.Function] || selectedScanGroup.value.Function
 })
 
 // Column header for value
@@ -331,7 +323,7 @@ const valueColumnLabel = computed(() => {
 
     <template v-else>
       <div class="table-header">
-        <span class="header-title" :title="`${selectedScanGroup.name} - ${fcLabel}`">{{ selectedScanGroup.name }} - {{ fcLabel }}</span>
+        <span class="header-title" :title="`${selectedScanGroup.Name} - ${fcLabel}`">{{ selectedScanGroup.Name }} - {{ fcLabel }}</span>
         <span v-if="errorMsg" class="error-badge" :title="errorMsg">ERR</span>
 
         <!-- Format selector (only for register types, not booleans) -->
@@ -380,9 +372,8 @@ const valueColumnLabel = computed(() => {
         <div class="virtual-body" :style="{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }">
           <div
             v-for="virtualRow in rowVirtualizer.getVirtualItems()"
-            :key="displayRows[virtualRow.index]?.address ?? virtualRow.index"
-            class="virtual-row"
-            role="button" tabindex="0"
+            :key="displayRows[virtualRow.index]?.Address ?? virtualRow.index"
+            class="virtual-row" role="button" tabindex="0"
             :class="{ selected: selectedIndices.has(virtualRow.index) }"
             :style="{
               position: 'absolute',
@@ -396,13 +387,13 @@ const valueColumnLabel = computed(() => {
             @keydown.enter.prevent="handleRowClick(virtualRow.index, $event)"
             @keydown.space.prevent="handleRowClick(virtualRow.index, $event)"
           >
-            <span class="vcol col-addr">{{ fmtAddress(displayRows[virtualRow.index].address) }}</span>
+            <span class="vcol col-addr">{{ fmtAddress(displayRows[virtualRow.index].Address) }}</span>
 
             <!-- Bool -->
-            <template v-if="displayRows[virtualRow.index].is_bool">
+            <template v-if="displayRows[virtualRow.index].IsBool">
               <span class="vcol col-display">
-                <span :class="['bool-value', displayRows[virtualRow.index].raw_value !== 0 ? 'on' : 'off']">
-                  {{ displayRows[virtualRow.index].raw_value !== 0 ? 'ON' : 'OFF' }}
+                <span :class="['bool-value', displayRows[virtualRow.index].RawValue !== 0 ? 'on' : 'off']">
+                  {{ displayRows[virtualRow.index].RawValue !== 0 ? 'ON' : 'OFF' }}
                 </span>
               </span>
             </template>
@@ -444,12 +435,12 @@ const valueColumnLabel = computed(() => {
   margin-top: 6px;
 }
 
-.error-text {
+.Error-text {
   color: var(--c-red);
   font-size: 12px;
 }
 
-.error-badge {
+.Error-badge {
   font-size: 10px;
   background: var(--c-red);
   color: var(--c-on-accent);

@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
+const { writeMock } = vi.hoisted(() => ({ writeMock: vi.fn() }))
 import { useI18n } from '../src/i18n'
 import ValuePanel from '../../master-frontend/src/components/ValuePanel.vue'
 import type { RegisterValueDto, ScanGroupInfo } from '../../master-frontend/src/types'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('../../master-frontend/wailsjs/go/main/App', () => Object.fromEntries(['WriteSingleRegisterSlave', 'WriteSingleCoilSlave', 'WriteMultipleRegistersSlave', 'WriteMultipleCoilsSlave'].map(name => [name, (...args: unknown[]) => writeMock(name, ...args)])))
 
 function register(address: number, is_bool = false): RegisterValueDto {
-  return { address, raw_value: 0, display_value: '0', is_bool }
+  return { Address: address, RawValue: 0, DisplayValue: '0', IsBool: is_bool }
 }
 function scanGroup(overrides: Partial<ScanGroupInfo> = {}): ScanGroupInfo {
-  return { id: 'group-2', name: 'Slave 2', function: 'read_holding_registers', start_address: 0,
-    quantity: 4, interval_ms: 1000, enabled: true, is_polling: true, slave_id: 2, ...overrides }
+  return { ID: 'group-2', Name: 'Slave 2', Function: 'read_holding_registers', StartAddress: 0,
+    Quantity: 4, IntervalMS: 1000, Enabled: true, IsPolling: true, SlaveID: 2, ...overrides }
 }
 let wrapper: ReturnType<typeof mount>
 const refreshData = vi.fn()
@@ -34,7 +34,7 @@ async function edit(label: string, value: string) {
   await input.trigger('keydown', { key: 'Enter' })
   await flushPromises()
 }
-beforeEach(() => { useI18n().setLocale('en-US'); vi.mocked(invoke).mockResolvedValue(undefined) })
+beforeEach(() => { useI18n().setLocale('en-US'); vi.mocked(writeMock).mockResolvedValue(undefined) })
 afterEach(() => { wrapper?.unmount(); vi.resetAllMocks() })
 
 describe('multi-word selection safety', () => {
@@ -46,9 +46,9 @@ describe('multi-word selection safety', () => {
     expect(wrapper.text()).not.toContain('32-bit')
     expect(wrapper.text()).not.toContain('64-bit')
     // The send boundary also rejects invalid packed writes even when called directly.
-    await (wrapper.vm as unknown as { writeRegisters: (writes: { address: number; value: number }[]) => Promise<void> })
+    await (wrapper.vm as unknown as { writeRegisters: (writes: { Address: number; value: number }[]) => Promise<void> })
       .writeRegisters(addresses.map(address => ({ address, value: 1 })))
-    expect(invoke).not.toHaveBeenCalled()
+    expect(writeMock).not.toHaveBeenCalled()
   })
 
   it('requires enough words, and only shows 64-bit for at least four contiguous words', () => {
@@ -62,14 +62,14 @@ describe('multi-word selection safety', () => {
   })
 
   it.each([
-    [], [{ address: 0, value: 1 }, { address: 2, value: 2 }],
-    [{ address: 1, value: 1 }, { address: 0, value: 2 }],
-    [{ address: 0, value: 1 }, { address: 0, value: 2 }],
-    [{ address: 4, value: 1 }],
+    [], [{ Address: 0, value: 1 }, { Address: 2, value: 2 }],
+    [{ Address: 1, value: 1 }, { Address: 0, value: 2 }],
+    [{ Address: 0, value: 1 }, { Address: 0, value: 2 }],
+    [{ Address: 4, value: 1 }],
   ])('rejects an invalid send payload %j without an RPC', async (...writes) => {
     panel([0, 1, 2, 3].map(address => register(address)))
     await (wrapper.vm as unknown as { writeRegisters: (writes: unknown) => Promise<void> }).writeRegisters(writes)
-    expect(invoke).not.toHaveBeenCalled()
+    expect(writeMock).not.toHaveBeenCalled()
   })
 
   it('cancels an active edit if Ctrl-selection introduces a hole', async () => {
@@ -79,7 +79,7 @@ describe('multi-word selection safety', () => {
     await input.setValue('1')
     selectedRegisters.value = [register(0), register(2)]
     await input.trigger('keydown', { key: 'Enter' })
-    expect(invoke).not.toHaveBeenCalled()
+    expect(writeMock).not.toHaveBeenCalled()
   })
 })
 
@@ -101,50 +101,42 @@ describe('word order and scan-group write target', () => {
     panel([3, 2, 1, 0].map(address => register(address)))
     expect(wrapper.find('.write-target').text()).toContain('Slave ID 2')
     await edit(label, value)
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_multiple_registers', {
-      connectionId: 'connection-1', request: { slave_id: 2, address: 0, values: [...values] },
-    })
+    expect(writeMock).toHaveBeenCalledExactlyOnceWith('WriteMultipleRegistersSlave', 'connection-1', 2, 0, [...values])
   })
 
   it.each([2, null])('uses target %s for single-register writes and labels default fallback', async slave_id => {
-    panel([register(0)], scanGroup({ slave_id }))
+    panel([register(0)], scanGroup({ SlaveID: slave_id }))
     expect(wrapper.find('.write-target').text()).toContain(slave_id === null ? 'default Slave ID' : 'Slave ID 2')
     await edit('Unsigned', '123')
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_single_register', {
-      connectionId: 'connection-1', request: { slave_id, address: 0, value: 123 },
-    })
+    expect(writeMock).toHaveBeenCalledExactlyOnceWith('WriteSingleRegisterSlave', 'connection-1', slave_id, 0, 123)
   })
 
   it('uses the scan-group target for coil toggles', async () => {
-    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    panel([register(0, true)], scanGroup({ Function: 'read_coils' }))
     await wrapper.get('button[aria-label="Set 0x0000 to ON"]').trigger('click')
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_single_coil', {
-      connectionId: 'connection-1', request: { slave_id: 2, address: 0, value: true },
-    })
+    expect(writeMock).toHaveBeenCalledExactlyOnceWith('WriteSingleCoilSlave', 'connection-1', 2, 0, true)
     await flushPromises()
     expect(refreshData).toHaveBeenCalledOnce()
     expect(wrapper.get('[role="status"]').text()).toBe('Write succeeded')
   })
 
   it('sends explicit OFF even if the cached value is already OFF', async () => {
-    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    panel([register(0, true)], scanGroup({ Function: 'read_coils' }))
     await wrapper.get('button[aria-label="Set 0x0000 to OFF"]').trigger('click')
     await flushPromises()
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_single_coil', {
-      connectionId: 'connection-1', request: { slave_id: 2, address: 0, value: false },
-    })
+    expect(writeMock).toHaveBeenCalledExactlyOnceWith('WriteSingleCoilSlave', 'connection-1', 2, 0, false)
   })
 
   it('blocks repeated commands while a write is pending', async () => {
     let finish!: () => void
-    vi.mocked(invoke).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
-    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    vi.mocked(writeMock).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    panel([register(0, true)], scanGroup({ Function: 'read_coils' }))
     const buttons = wrapper.findAll('button')
     await buttons[0]!.trigger('click')
     expect(buttons.every(button => button.element.disabled)).toBe(true)
     expect(wrapper.get('[role="status"]').text()).toBe('Sending…')
     await buttons[1]!.trigger('click')
-    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(writeMock).toHaveBeenCalledTimes(1)
     finish()
     await flushPromises()
     expect(buttons.every(button => !button.element.disabled)).toBe(true)
@@ -152,10 +144,10 @@ describe('word order and scan-group write target', () => {
 
   it('does not refresh or show an old write result on a different target', async () => {
     let finish!: () => void
-    vi.mocked(invoke).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
-    const state = panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    vi.mocked(writeMock).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const state = panel([register(0, true)], scanGroup({ Function: 'read_coils' }))
     await wrapper.find('button').trigger('click')
-    state.selectedScanGroup.value = scanGroup({ id: 'other', function: 'read_coils', slave_id: 3 })
+    state.selectedScanGroup.value = scanGroup({ ID: 'other', Function: 'read_coils', SlaveID: 3 })
     finish()
     await flushPromises()
     expect(refreshData).not.toHaveBeenCalled()
@@ -163,8 +155,8 @@ describe('word order and scan-group write target', () => {
   })
 
   it('shows a write error and allows retry without changing the cached value', async () => {
-    vi.mocked(invoke).mockRejectedValueOnce('Illegal data address')
-    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    vi.mocked(writeMock).mockRejectedValueOnce('Illegal data address')
+    panel([register(0, true)], scanGroup({ Function: 'read_coils' }))
     await wrapper.find('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('Illegal data address')
@@ -178,13 +170,11 @@ describe('word order and scan-group write target', () => {
     await row('Long AB CD').find('.value-data').trigger('click')
     const input = row('Long AB CD').find('input')
     await input.setValue('16909060')
-    selectedRegisters.value[0].raw_value = 42
+    selectedRegisters.value[0].RawValue = 42
     await flushPromises()
     expect(wrapper.find('input').exists()).toBe(true)
     await input.trigger('keydown', { key: 'Enter' })
-    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_multiple_registers', {
-      connectionId: 'connection-1', request: { slave_id: 2, address: 0, values: [0x0102, 0x0304] },
-    })
+    expect(writeMock).toHaveBeenCalledExactlyOnceWith('WriteMultipleRegistersSlave', 'connection-1', 2, 0, [0x0102, 0x0304])
   })
 
   it.each(['connection', 'group', 'slave', 'function', 'type'])('cancels an active edit when the %s changes at the same address', async change => {
@@ -193,11 +183,11 @@ describe('word order and scan-group write target', () => {
     const input = row('Long AB CD').find('input')
     await input.setValue('123')
     if (change === 'connection') state.selectedConnectionId.value = 'other'
-    if (change === 'group') state.selectedScanGroup.value.id = 'other'
-    if (change === 'slave') state.selectedScanGroup.value.slave_id = 3
-    if (change === 'function') state.selectedScanGroup.value.function = 'read_input_registers'
-    if (change === 'type') state.selectedRegisters.value[1].is_bool = true
+    if (change === 'group') state.selectedScanGroup.value.ID = 'other'
+    if (change === 'slave') state.selectedScanGroup.value.SlaveID = 3
+    if (change === 'function') state.selectedScanGroup.value.Function = 'read_input_registers'
+    if (change === 'type') state.selectedRegisters.value[1].IsBool = true
     await input.trigger('keydown', { key: 'Enter' })
-    expect(invoke).not.toHaveBeenCalled()
+    expect(writeMock).not.toHaveBeenCalled()
   })
 })

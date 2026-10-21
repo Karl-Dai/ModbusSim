@@ -1,0 +1,40 @@
+slave 1 replied to "Read Coils": 16 bit states, 4 ON / 12 OFF (details below)
+
+── Data details ──
+00001 = ON
+00002 = OFF
+00003 = ON
+00004 = OFF
+00005 = OFF
+00006 = OFF
+00007 = OFF
+00008 = OFF
+00009 = OFF
+00010 = ON
+00011 = OFF
+00012 = ON
+00013 = OFF
+00014 = OFF
+00015 = OFF
+00016 = OFF
+Note: the response frame carries no start address or quantity; numbering starts at 00001 by default and the last byte may contain padding bits — refer to the matching request
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 05  Length                  5 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+01     Function code           0x01 = Read Coils
+02     Byte count              2 data bytes
+05 0A  Data                    each bit is the state of one coil (LSB first within each byte)
+
+── Technical details ──
+Transport: Modbus TCP (11 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 5 (5 bytes actually follow)
+Unit ID: 1
+Function: 0x01 (Read Coils)
+Byte count: 2
+Data: 05 0A
+PDU: 01 02 05 0A

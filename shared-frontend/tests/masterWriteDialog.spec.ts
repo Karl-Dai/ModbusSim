@@ -1,42 +1,147 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from '../src/i18n'
 import WriteDialog from '../../master-frontend/src/components/WriteDialog.vue'
+import * as App from '../../master-frontend/wailsjs/go/main/App'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('../../master-frontend/wailsjs/go/main/App', () => ({
+  WriteSingleRegisterSlave: vi.fn(),
+  WriteSingleCoilSlave: vi.fn(),
+  WriteMultipleRegistersSlave: vi.fn(),
+  WriteMultipleCoilsSlave: vi.fn(),
+}))
+
 let wrapper: ReturnType<typeof mount>
-beforeEach(() => { useI18n().setLocale('en-US'); vi.mocked(invoke).mockResolvedValue(undefined) })
-afterEach(() => { wrapper?.unmount(); vi.resetAllMocks(); document.body.innerHTML = '' })
+const writeButton = () => wrapper.get<HTMLButtonElement>('.btn-primary')
+const addressInput = () => wrapper.get('input[type="number"]')
+const quantityInput = () => wrapper.findAll('input[type="number"]')[1]!
+const valuesInput = () => wrapper.get('textarea')
 
-for (const slaveId of [2, null]) {
-  it.each([
-    ['write_single_register', '123', { value: 123 }],
-    ['write_single_coil', 'true', { value: true }],
-    ['write_multiple_registers', '123,456', { values: [123, 456] }],
-    ['write_multiple_coils', 'true,false', { values: [true, false] }],
-  ])(`sends %s to ${slaveId ?? 'the connection default'} and displays its target`, async (command, input, values) => {
-    wrapper = mount(WriteDialog, {
-      attachTo: document.body,
-      props: { show: true, connectionId: 'connection-1', slaveId },
-    })
-    expect(document.querySelector('.write-target')!.textContent).toContain(slaveId === null ? 'default Slave ID' : 'Slave ID 2')
-    const select = document.querySelector('select')!
-    select.value = command
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+const writeMocks = () => [
+  vi.mocked(App.WriteSingleRegisterSlave),
+  vi.mocked(App.WriteSingleCoilSlave),
+  vi.mocked(App.WriteMultipleRegistersSlave),
+  vi.mocked(App.WriteMultipleCoilsSlave),
+]
+const expectNoWrite = () => {
+  for (const mock of writeMocks()) expect(mock).not.toHaveBeenCalled()
+}
+
+beforeEach(async () => {
+  for (const mock of writeMocks()) mock.mockReset().mockResolvedValue(undefined)
+  useI18n().setLocale('zh-CN')
+  wrapper = mount(WriteDialog, {
+    props: { show: true, connectionId: 'test-connection' },
+    global: { stubs: { teleport: true } },
+  })
+  await wrapper.get('select').setValue('write_multiple_coils')
+})
+afterEach(() => wrapper.unmount())
+
+describe('FC15 coil editing', () => {
+  it('sets individual coil states and submits one contiguous range', async () => {
+    await addressInput().setValue('5')
+    await quantityInput().setValue('4')
+    await wrapper.findAll('.coil-toggle')[0]!.trigger('click')
+    await wrapper.findAll('.coil-toggle')[2]!.trigger('click')
+    expect(wrapper.findAll('.coil-toggle').map(button => button.text())).toEqual(['5ON', '6OFF', '7ON', '8OFF'])
+    expect(valuesInput().element.value).toBe('1, 0, 1, 0')
+    await writeButton().trigger('click')
     await flushPromises()
-    const addressInput = document.querySelector<HTMLInputElement>('input[type="number"]')!
-    addressInput.value = '10'
-    addressInput.dispatchEvent(new Event('input', { bubbles: true }))
-    const valueInput = document.querySelector<HTMLInputElement>('input[type="text"]')!
-    valueInput.value = input
-    valueInput.dispatchEvent(new Event('input', { bubbles: true }))
-    await flushPromises()
-    document.querySelector<HTMLButtonElement>('.btn-primary')!.click()
-    await flushPromises()
-    expect(invoke).toHaveBeenCalledExactlyOnceWith(command, {
-      connectionId: 'connection-1', request: { slave_id: slaveId, address: 10, ...values },
-    })
+    expect(App.WriteMultipleCoilsSlave).toHaveBeenCalledExactlyOnceWith(
+      'test-connection', null, 5, [true, false, true, false],
+    )
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
-}
+
+  it('parses pasted values with comma, Chinese comma, spaces and newlines', async () => {
+    await valuesInput().setValue('1, false，ON\n0 true OFF')
+    expect(quantityInput().element.value).toBe('6')
+    expect(wrapper.findAll('.coil-toggle').map(button => button.attributes('aria-pressed')))
+      .toEqual(['true', 'false', 'true', 'false', 'true', 'false'])
+    await writeButton().trigger('click')
+    await flushPromises()
+    expect(vi.mocked(App.WriteMultipleCoilsSlave).mock.calls[0]).toEqual([
+      'test-connection', null, 0, [true, false, true, false, true, false],
+    ])
+  })
+
+  it('preserves existing states when extending or shrinking the quantity', async () => {
+    await valuesInput().setValue('ON, OFF, 1')
+    await quantityInput().setValue('5')
+    expect(valuesInput().element.value).toBe('ON, OFF, 1, 0, 0')
+    await quantityInput().setValue('2')
+    expect(valuesInput().element.value).toBe('ON, OFF')
+  })
+
+  it.each(['', '1,,0', '1,', ',1', '1,2,0', '1,tru,0', '1,0.5', '1010'])('blocks invalid input %j without sending a write', async value => {
+    await valuesInput().setValue(value)
+    expect(writeButton().element.disabled).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).not.toBe('')
+    await writeButton().trigger('click')
+    expectNoWrite()
+    expect(wrapper.emitted('close')).toBeUndefined()
+  })
+
+  it.each(['-1', '0.5', '', '65536'])('blocks invalid address %j', async address => {
+    await addressInput().setValue(address)
+    expect(writeButton().element.disabled).toBe(true)
+    expectNoWrite()
+  })
+
+  it('accepts the last address but blocks a range that extends past it', async () => {
+    await addressInput().setValue('65535')
+    expect(writeButton().element.disabled).toBe(false)
+    await quantityInput().setValue('2')
+    expect(writeButton().element.disabled).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).toContain('65535')
+  })
+
+  it.each(['0', '1969', '1.5', ''])('blocks invalid quantity %j until corrected', async quantity => {
+    await quantityInput().setValue(quantity)
+    expect(writeButton().element.disabled).toBe(true)
+    expect(wrapper.get('[role="alert"]').text()).toContain('1968')
+    await writeButton().trigger('click')
+    expectNoWrite()
+    await quantityInput().setValue('2')
+    expect(writeButton().element.disabled).toBe(false)
+    expect(wrapper.findAll('.coil-toggle')).toHaveLength(2)
+  })
+
+  it('enforces the FC15 quantity limit', async () => {
+    await valuesInput().setValue(Array(1968).fill('0').join(','))
+    expect(writeButton().element.disabled).toBe(false)
+    await valuesInput().setValue(Array(1969).fill('0').join(','))
+    expect(writeButton().element.disabled).toBe(true)
+    expectNoWrite()
+  })
+
+  it('prevents duplicate submissions while the write is pending', async () => {
+    let finish!: () => void
+    vi.mocked(App.WriteMultipleCoilsSlave).mockImplementationOnce(
+      () => new Promise(resolve => { finish = () => resolve(undefined) }),
+    )
+    await writeButton().trigger('click')
+    expect(writeButton().element.disabled).toBe(true)
+    expect(valuesInput().element.disabled).toBe(true)
+    await writeButton().trigger('click')
+    expect(App.WriteMultipleCoilsSlave).toHaveBeenCalledTimes(1)
+    finish()
+    await flushPromises()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('keeps FC05 and raw FC16 inputs and payloads working', async () => {
+    await wrapper.get('select').setValue('write_single_coil')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    await wrapper.get('input[type="text"]').setValue('1')
+    await writeButton().trigger('click')
+    await flushPromises()
+    expect(App.WriteSingleCoilSlave).toHaveBeenLastCalledWith('test-connection', null, 0, true)
+    await wrapper.get('select').setValue('write_multiple_registers')
+    await wrapper.get('input[type="text"]').setValue('10,20')
+    await writeButton().trigger('click')
+    await flushPromises()
+    expect(App.WriteMultipleRegistersSlave).toHaveBeenLastCalledWith('test-connection', null, 0, [10, 20])
+  })
+})

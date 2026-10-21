@@ -1,0 +1,20 @@
+The master asks slave 1 to "Read Holding Registers": read 1 register starting from 40001
+
+── Byte-by-byte ──
+01     Slave address  device 1
+03     Function code  0x03 = Read Holding Registers
+00 00  Start address  protocol address 0, PLC address 40001
+00 01  Read quantity  read 1 register
+00 00  CRC check      check failed; the data computes to 84 0A
+
+── Notes ──
+CRC check failed: the frame ends with 00 00, but the data computes to 84 0A (low byte first); bytes may be missing or altered
+
+── Technical details ──
+Transport: Modbus RTU (8 bytes total)
+Slave address: 1
+Function: 0x03 (Read Holding Registers)
+Start address: 0 (PLC 40001)
+Quantity: 1
+CRC16: 0x0A84 (wire order 84 0A, failed)
+PDU: 03 00 00 00 01

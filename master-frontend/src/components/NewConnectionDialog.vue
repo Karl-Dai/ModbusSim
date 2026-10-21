@@ -1,23 +1,15 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { useI18n, showAlert, vModal, PathField } from 'shared-frontend'
+import * as App from '../../wailsjs/go/main/App'
+import type { masterstate, project } from '../../wailsjs/go/models'
+
+import { PathField, showAlert, useI18n, vModal } from 'shared-frontend'
 import CommunicationSettings from './CommunicationSettings.vue'
-import { defaultCommunicationOptions, validCommunicationOptions, type CommunicationOptions } from '../communication'
+import { defaultCommunicationOptions, validCommunicationOptions } from '../communication'
 
 const { t } = useI18n()
 
 interface Props { show: boolean; connectionId?: string }
-interface ConnectionSettings {
-  transport: { type: string; port: string | number; baud_rate?: number; data_bits?: number; stop_bits?: number; parity?: string }
-  config: {
-    target_address: string; port: number; slave_id: number; timeout_ms: number
-    requests: CommunicationOptions['requests']
-    tls: { enabled: boolean; ca_file: string; cert_file: string; key_file: string; pkcs12_file: string; pkcs12_password: string; accept_invalid_certs: boolean }
-    socks5: { enabled: boolean; host: string; port: number; username: string; password: string }
-  }
-  reconnect_policy: Omit<CommunicationOptions['reconnect'], 'max_attempts'> & { max_attempts: number | null }
-}
 const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'close'): void
@@ -86,34 +78,22 @@ watch(() => [props.show, props.connectionId] as const, async ([visible, connecti
   if (!connectionId) return
   busy.value = true
   try {
-    const settings = await invoke<ConnectionSettings>('get_master_connection_settings', { connectionId })
+    const settings = await App.GetSettings(connectionId)
     if (cancelled) return
-    const { config, transport, reconnect_policy } = settings
-    form.value = {
-      transport: transport.type === 'tcp_tls' ? 'tcp' : transport.type,
-      target_address: config.target_address, port: config.port,
-      slave_id: config.slave_id, timeout_ms: config.timeout_ms,
-    }
-    communication.value = { requests: config.requests, reconnect: { ...reconnect_policy, max_attempts: reconnect_policy.max_attempts ?? 0 } }
-    if (transport.type === 'rtu' || transport.type === 'ascii') {
-      serialPort.value = String(transport.port)
-      baudRate.value = transport.baud_rate!
-      dataBits.value = transport.data_bits!
-      stopBits.value = transport.stop_bits!
-      parityMode.value = transport.parity!
-    }
-    useTls.value = transport.type === 'tcp_tls'
-    tlsCaFile.value = config.tls.ca_file
-    tlsCertFile.value = config.tls.cert_file
-    tlsKeyFile.value = config.tls.key_file
-    tlsPkcs12File.value = config.tls.pkcs12_file
-    tlsPkcs12Password.value = config.tls.pkcs12_password
-    tlsAcceptInvalidCerts.value = config.tls.accept_invalid_certs
-    useSocks5.value = config.socks5.enabled
-    socks5Host.value = config.socks5.host
-    socks5Port.value = config.socks5.port
-    socks5Username.value = config.socks5.username
-    socks5Password.value = config.socks5.password
+    const transport = settings.Transport
+    form.value = { transport: transport.Type === 'tcp_tls' ? 'tcp' : transport.Type,
+      target_address: transport.Host ?? '', port: transport.Port ?? 502,
+      slave_id: settings.SlaveID, timeout_ms: settings.TimeoutMS }
+    communication.value = { requests: settings.Requests, reconnect: { ...settings.Reconnect, MaxAttempts: settings.Reconnect.MaxAttempts ?? 0 } }
+    if (transport.Serial) { const sc = transport.Serial; serialPort.value = sc.Port; baudRate.value = sc.BaudRate; dataBits.value = sc.DataBits; stopBits.value = sc.StopBits; parityMode.value = sc.Parity }
+    useTls.value = transport.Type === 'tcp_tls'
+    const tls = transport.TLS
+    tlsCaFile.value = tls?.CAFile ?? ''; tlsCertFile.value = tls?.CertFile ?? ''; tlsKeyFile.value = tls?.KeyFile ?? ''
+    tlsPkcs12File.value = tls?.PKCS12File ?? ''; tlsPkcs12Password.value = tls?.PKCS12Password ?? ''; tlsAcceptInvalidCerts.value = tls?.AcceptInvalidCerts ?? false
+    const proxy = settings.Socks5
+    useSocks5.value = !!proxy; socks5Host.value = proxy?.Host ?? '127.0.0.1'; socks5Port.value = proxy?.Port ?? 1080
+    socks5Username.value = proxy?.Username ?? ''; socks5Password.value = proxy?.Password ?? ''
+
   } catch (e) {
     if (!cancelled) { error.value = String(e); loadFailed.value = true }
   } finally {
@@ -127,20 +107,17 @@ watch(() => form.value.transport, (val) => {
 
 async function refreshSerialPorts() {
   try {
-    serialPorts.value = await invoke('list_serial_ports')
+    serialPorts.value = (await App.ListSerialPorts()).map(name => ({ name, description: '', manufacturer: '' }))
   } catch (e) { await showAlert(String(e)) }
 }
 
 async function pickFile(target: 'cert' | 'key' | 'ca' | 'pkcs12') {
   try {
-    // Goes through a custom command so macOS shows a free-standing (movable)
-    // panel instead of a window sheet.
-    const p = await invoke<string | null>('pick_certificate_file', {
-      filters: target === 'pkcs12'
-        ? [['PKCS#12', ['p12', 'pfx']]]
-        : [['PEM Certificate', ['pem', 'crt', 'key']]],
-    })
-    if (!p) return
+    const path = await App.OpenFileDialog(target === 'pkcs12'
+      ? [{ Name: 'PKCS#12', Extensions: ['p12', 'pfx'] }]
+      : [{ Name: 'PEM Certificate', Extensions: ['pem', 'crt', 'key'] }])
+    if (!path) return
+    const p = path as string
     if (target === 'cert') tlsCertFile.value = p
     else if (target === 'key') tlsKeyFile.value = p
     else if (target === 'ca') tlsCaFile.value = p
@@ -174,54 +151,17 @@ async function submit() {
     return
   }
 
-  let transport: Record<string, unknown>
-  if (form.value.transport === 'tcp') {
-    transport = { type: 'tcp', host: form.value.target_address, port: form.value.port }
-    if (useTls.value) transport = { type: 'tcp_tls', host: form.value.target_address, port: form.value.port }
-  } else if (form.value.transport === 'rtu' || form.value.transport === 'ascii') {
-    transport = {
-      type: form.value.transport,
-      serial_port: serialPort.value,
-      baud_rate: baudRate.value,
-      data_bits: dataBits.value,
-      stop_bits: stopBits.value,
-      parity: parityMode.value,
-    }
-  } else {
-    transport = { type: 'rtu_over_tcp', host: form.value.target_address, port: form.value.port }
-  }
-
+  const transport: project.Transport = needsSerial
+    ? { Type: form.value.transport, Serial: { Port: serialPort.value, BaudRate: baudRate.value, DataBits: dataBits.value, StopBits: stopBits.value, Parity: parityMode.value } }
+    : { Type: form.value.transport === 'tcp' && useTls.value ? 'tcp_tls' : form.value.transport, Host: form.value.target_address.trim(), Port: form.value.port }
+  if (transport.Type === 'tcp_tls') transport.TLS = { Enabled: true, CAFile: tlsCaFile.value, CertFile: tlsCertFile.value, KeyFile: tlsKeyFile.value, PKCS12File: tlsPkcs12File.value, PKCS12Password: tlsPkcs12Password.value, AcceptInvalidCerts: tlsAcceptInvalidCerts.value }
+  const settings: masterstate.Settings = { Transport: transport, SlaveID: form.value.slave_id, TimeoutMS: form.value.timeout_ms,
+    Requests: communication.value.requests, Reconnect: { ...communication.value.reconnect, MaxAttempts: communication.value.reconnect.MaxAttempts || undefined },
+    Socks5: usesNetwork && useSocks5.value ? { Host: socks5Host.value.trim(), Port: socks5Port.value, Username: socks5Username.value, Password: socks5Password.value } : undefined }
   try {
     busy.value = true
-    await invoke(props.connectionId ? 'update_master_connection' : 'create_master_connection', {
-      ...(props.connectionId ? { connectionId: props.connectionId } : {}),
-      request: {
-        transport,
-        slave_id: form.value.slave_id,
-        timeout_ms: form.value.timeout_ms,
-        requests: communication.value.requests,
-        reconnect_policy: {
-          ...communication.value.reconnect,
-          max_attempts: communication.value.reconnect.max_attempts || null,
-        },
-        use_tls: form.value.transport === 'tcp' && useTls.value,
-        ca_file: tlsCaFile.value || undefined,
-        cert_file: tlsCertFile.value || undefined,
-        key_file: tlsKeyFile.value || undefined,
-        pkcs12_file: tlsPkcs12File.value || undefined,
-        pkcs12_password: tlsPkcs12Password.value || undefined,
-        accept_invalid_certs: tlsAcceptInvalidCerts.value || undefined,
-        ...(usesNetwork ? {
-          socks5: {
-            enabled: useSocks5.value,
-            host: socks5Host.value.trim(),
-            port: socks5Port.value,
-            username: socks5Username.value,
-            password: socks5Password.value,
-          },
-        } : {}),
-      }
-    })
+    if (props.connectionId) await App.UpdateConnection(props.connectionId, settings)
+    else await App.CreateConnection(settings)
     emit('close')
     if (props.connectionId) emit('saved')
     else emit('created')
@@ -298,7 +238,7 @@ async function submit() {
               </div>
               <div class="form-label">
                 {{ t('dialog.clientKey') }}
-                <PathField v-model="tlsKeyFile" :placeholder="t('dialog.clientKeyPlaceholder')" @browse="pickFile('key')" />
+                <PathField v-model="tlsKeyFile" :placeholder="t('dialog.clientCertPlaceholder')" @browse="pickFile('key')" />
               </div>
               <div class="form-label">
                 {{ t('dialog.pkcs12File') }}

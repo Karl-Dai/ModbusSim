@@ -1,0 +1,2 @@
+!!ERROR!!
+ASCII frame decode failed: ASCII frame LRC check failed

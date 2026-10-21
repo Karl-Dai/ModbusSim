@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "type": "slave",
+  "connections": [
+    {
+      "id": "conn_tls",
+      "name": "TLS listener",
+      "transport": {
+        "type": "tcp_tls",
+        "host": "0.0.0.0",
+        "port": 502,
+        "client_tls": {
+          "enabled": true,
+          "ca_file": "/certs/ca.pem",
+          "cert_file": "",
+          "key_file": "",
+          "pkcs12_file": "/certs/client.p12",
+          "pkcs12_password": "clientpw",
+          "accept_invalid_certs": false
+        },
+        "server_tls": {
+          "enabled": true,
+          "cert_file": "",
+          "key_file": "",
+          "ca_file": "/certs/ca.pem",
+          "require_client_cert": true,
+          "pkcs12_file": "/certs/server.p12",
+          "pkcs12_password": "serverpw"
+        }
+      },
+      "devices": [
+        {
+          "slave_id": 11,
+          "name": "Boiler",
+          "register_defs": [
+            {
+              "address": 0,
+              "register_type": "coil",
+              "data_type": "bool",
+              "name": "Pump",
+              "comment": "circulation pump",
+              "mutation": {
+                "enabled": true,
+                "mode": "flip",
+                "period_ms": 500,
+                "step": 1,
+                "min": 0,
+                "max": 1
+              }
+            },
+            {
+              "address": 100,
+              "register_type": "holding_register",
+              "data_type": "u_int16",
+              "endian": "big",
+              "name": "Setpoint",
+              "comment": ""
+            },
+            {
+              "address": 200,
+              "register_type": "holding_register",
+              "data_type": "u_int32",
+              "endian": "mid_big",
+              "name": "Energy"
+            },
+            {
+              "address": 300,
+              "register_type": "input_register",
+              "data_type": "float32",
+              "endian": "little",
+              "name": "Temperature",
+              "data_source": {
+                "source": {
+                  "type": "sine",
+                  "amplitude": 20,
+                  "frequency": 0.5,
+                  "offset": 60,
+                  "phase": 0.25
+                },
+                "update_interval_ms": 250
+              }
+            },
+            {
+              "address": 400,
+              "register_type": "discrete_input",
+              "data_type": "bool",
+              "name": "Alarm"
+            },
+            {
+              "address": 500,
+              "register_type": "input_register",
+              "data_type": "uint16",
+              "name": "AliasSpelling"
+            }
+          ],
+          "registers": {
+            "coils": [],
+            "discrete_inputs": [],
+            "holding": [],
+            "input": []
+          },
+          "values": {
+            "coils": [[0, true]],
+            "discrete_inputs": [[400, false]],
+            "holding_registers": [[100, 1234], [200, 0], [201, 4660]],
+            "input_registers": [[500, 7]]
+          }
+        }
+      ],
+      "scan_groups": [],
+      "default_slave_id": 11,
+      "timeout_ms": 1500,
+      "requests": {
+        "interval_ms": 20,
+        "max_read_registers": 100,
+        "max_read_bits": 1000
+      },
+      "reconnect_policy": {
+        "enabled": false,
+        "initial_delay_ms": 250,
+        "max_delay_ms": 5000,
+        "backoff_factor": 1.5,
+        "max_attempts": null
+      },
+      "socks5": {
+        "enabled": true,
+        "host": "proxy.internal",
+        "port": 1080,
+        "username": "ops",
+        "password": "pw"
+      }
+    }
+  ]
+}

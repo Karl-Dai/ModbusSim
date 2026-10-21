@@ -1,0 +1,29 @@
+The master asks slave 1 to "Write Multiple Coils": write 3 coils starting from 00001 (2 ON / 1 OFF)
+
+── Data details ──
+00001 = ON
+00002 = OFF
+00003 = ON
+
+── Byte-by-byte ──
+01     Slave address   device 1
+0F     Function code   0x0F = Write Multiple Coils
+00 00  Start address   protocol address 0, PLC address 00001
+00 03  Write quantity  write 3 coils
+01     Byte count      1 bytes of write data
+05     Write data      each bit is the state to write to one coil (LSB first within each byte)
+4F 54  CRC check       CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (10 bytes total)
+Slave address: 1
+Function: 0x0F (Write Multiple Coils)
+Start address: 0 (PLC 00001)
+Write quantity: 3
+Byte count: 1
+Data: 05
+CRC16: 0x544F (wire order 4F 54, passed)
+PDU: 0F 00 00 00 03 01 05

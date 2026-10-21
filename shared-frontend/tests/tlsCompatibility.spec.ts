@@ -1,17 +1,22 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { invoke } from '@tauri-apps/api/core'
 import { useI18n } from '../src/i18n'
 import NewConnectionDialog from '../../master-frontend/src/components/NewConnectionDialog.vue'
+import * as App from '../../master-frontend/wailsjs/go/main/App'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
+vi.mock('../../master-frontend/wailsjs/go/main/App', () => ({
+  GetSettings: vi.fn(),
+  ListSerialPorts: vi.fn().mockResolvedValue([]),
+  OpenFileDialog: vi.fn(),
+  UpdateConnection: vi.fn(),
+  CreateConnection: vi.fn(),
+}))
 let wrapper: ReturnType<typeof mount> | undefined
 afterEach(() => { wrapper?.unmount(); vi.resetAllMocks(); document.body.innerHTML = '' })
 
 it('requires an explicit per-connection opt-in and resets it for the next connection', async () => {
   useI18n().setLocale('zh-CN')
-  vi.mocked(invoke).mockResolvedValue({ id: 'qa' })
+  vi.mocked(App.CreateConnection).mockResolvedValue({ id: 'qa' } as never)
   wrapper = mount(NewConnectionDialog, { attachTo: document.body, props: { show: true } })
   const enableTls = () => {
     const label = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === '启用 TLS')!
@@ -27,7 +32,12 @@ it('requires an explicit per-connection opt-in and resets it for the next connec
   const create = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '创建')!
   create.click()
   await flushPromises()
-  expect(invoke).toHaveBeenCalledWith('create_master_connection', expect.objectContaining({ request: expect.objectContaining({ use_tls: true, accept_invalid_certs: true }) }))
+  expect(App.CreateConnection).toHaveBeenCalledWith(expect.objectContaining({
+    Transport: expect.objectContaining({
+      Type: 'tcp_tls',
+      TLS: expect.objectContaining({ Enabled: true, AcceptInvalidCerts: true }),
+    }),
+  }))
   await wrapper.setProps({ show: false })
   await wrapper.setProps({ show: true })
   enableTls()

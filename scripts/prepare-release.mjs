@@ -4,11 +4,13 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const VERSION_FILES = [
-  'crates/modbussim-app/Cargo.toml',
-  'crates/modbussim-app/tauri.conf.json',
-  'crates/modbusmaster-app/Cargo.toml',
-  'crates/modbusmaster-app/tauri.conf.json',
+const WAILS_FILES = [
+  'go/cmd/slavegui/wails.json',
+  'go/cmd/mastergui/wails.json',
+]
+const GO_VERSION_FILES = [
+  'go/cmd/slavegui/app.go',
+  'go/cmd/mastergui/app.go',
 ]
 
 const CATEGORY_ORDER = ['Added', 'Fixed', 'Changed', 'Documentation', 'Tests']
@@ -82,21 +84,21 @@ export function buildChangelogSection(version, date, subjects) {
   return lines.join('\n')
 }
 
-export function updateCargoToml(source, version) {
+export function updateProductVersion(source, version) {
   const updated = source.replace(
-    /(\[package\][\s\S]*?\nversion = ")[^"]+("\n)/,
+    /("productVersion"\s*:\s*")[^"]+(")/,
     `$1${normalizeVersion(version)}$2`,
   )
-  if (updated === source) throw new Error('could not update Cargo.toml package version')
+  if (updated === source) throw new Error('could not update wails.json productVersion')
   return updated
 }
 
-export function updateJsonVersion(source, version) {
+export function updateGoVersionVar(source, version) {
   const updated = source.replace(
-    /("version"\s*:\s*")[^"]+("\s*,)/,
+    /(var Version = ")[^"]+(")/,
     `$1${normalizeVersion(version)}$2`,
   )
-  if (updated === source) throw new Error('could not update JSON version')
+  if (updated === source) throw new Error('could not update Go Version variable')
   return updated
 }
 
@@ -119,8 +121,8 @@ function write(root, path, value) {
 }
 
 export function currentVersion(root = process.cwd()) {
-  const match = read(root, VERSION_FILES[0]).match(/\nversion = "([^"]+)"/)
-  if (!match) throw new Error(`could not read version from ${VERSION_FILES[0]}`)
+  const match = read(root, WAILS_FILES[0]).match(/"productVersion"\s*:\s*"([^"]+)"/)
+  if (!match) throw new Error(`could not read version from ${WAILS_FILES[0]}`)
   return normalizeVersion(match[1])
 }
 
@@ -128,11 +130,13 @@ export function verifyPreparedRelease(root, tag) {
   const version = normalizeVersion(tag)
   const errors = []
 
-  for (const path of VERSION_FILES) {
-    const source = read(root, path)
-    const match = path.endsWith('.json')
-      ? source.match(/"version"\s*:\s*"([^"]+)"/)
-      : source.match(/\nversion = "([^"]+)"/)
+  for (const path of WAILS_FILES) {
+    const match = read(root, path).match(/"productVersion"\s*:\s*"([^"]+)"/)
+    if (!match || match[1] !== version) errors.push(`${path} is not version ${version}`)
+  }
+
+  for (const path of GO_VERSION_FILES) {
+    const match = read(root, path).match(/var Version = "([^"]+)"/)
     if (!match || match[1] !== version) errors.push(`${path} is not version ${version}`)
   }
 
@@ -155,11 +159,11 @@ export function prepareRelease(root, { fromTag, version, date, subjects }) {
   }
   if (subjects.length === 0) throw new Error(`no commits found after ${fromTag}`)
 
-  for (const path of VERSION_FILES) {
-    const source = read(root, path)
-    write(root, path, path.endsWith('.json')
-      ? updateJsonVersion(source, nextVersion)
-      : updateCargoToml(source, nextVersion))
+  for (const path of WAILS_FILES) {
+    write(root, path, updateProductVersion(read(root, path), nextVersion))
+  }
+  for (const path of GO_VERSION_FILES) {
+    write(root, path, updateGoVersionVar(read(root, path), nextVersion))
   }
   const section = buildChangelogSection(nextVersion, date, subjects)
   write(root, 'CHANGELOG.md', prependChangelog(read(root, 'CHANGELOG.md'), section))

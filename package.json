@@ -4,5 +4,17 @@
     "shared-frontend",
     "frontend",
     "master-frontend"
-  ]
+  ],
+  "scripts": {
+    "dev:slave:go": "./go/scripts/slavegui.sh dev",
+    "build:slave:go": "./go/scripts/slavegui.sh build",
+    "bindings:slave:go": "./go/scripts/slavegui.sh bindings",
+    "test:go": "./go/scripts/slavegui.sh test -race -count=1 ./...",
+    "dev:master:go": "./go/scripts/mastergui.sh dev",
+    "build:master:go": "./go/scripts/mastergui.sh build",
+    "bindings:master:go": "./go/scripts/mastergui.sh bindings"
+  },
+  "overrides": {
+    "vue": "^3.5.44"
+  }
 }

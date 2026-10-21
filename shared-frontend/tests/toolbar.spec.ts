@@ -1,17 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { open, save } from '@tauri-apps/plugin-dialog'
+import * as SlaveApp from '../../frontend/wailsjs/go/main/App'
+import * as MasterApp from '../../master-frontend/wailsjs/go/main/App'
+import { BrowserOpenURL } from '../../frontend/wailsjs/runtime/runtime'
 import AppToolbar from '../src/components/AppToolbar.vue'
 import MasterToolbar from '../../master-frontend/src/components/Toolbar.vue'
 import SlaveToolbar from '../../frontend/src/components/Toolbar.vue'
 import { useI18n } from '../src/i18n'
 import { showConfirm } from '../src/composables/useDialog'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }))
-vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(), save: vi.fn() }))
+vi.mock('../../frontend/wailsjs/go/main/App', () => ({ StartConnection: vi.fn().mockResolvedValue(undefined), StopConnection: vi.fn().mockResolvedValue(undefined), OpenFileDialog: vi.fn(), SaveFileDialog: vi.fn(), LoadProject: vi.fn(), SaveProject: vi.fn() }))
+vi.mock('../../frontend/wailsjs/runtime/runtime', () => ({ BrowserOpenURL: vi.fn() }))
+vi.mock('../../master-frontend/wailsjs/go/main/App', () => ({ Connect: vi.fn().mockResolvedValue(undefined), Disconnect: vi.fn().mockResolvedValue(undefined), DeleteConnection: vi.fn(), StartAllPolling: vi.fn().mockResolvedValue(undefined), StopAllPolling: vi.fn().mockResolvedValue(undefined), OpenFileDialog: vi.fn(), SaveFileDialog: vi.fn(), LoadProject: vi.fn(), SaveProject: vi.fn() }))
+vi.mock('../../master-frontend/wailsjs/runtime/runtime', () => ({ BrowserOpenURL: vi.fn() }))
+
 vi.mock('../src/composables/useDialog', async importOriginal => ({
   ...await importOriginal<typeof import('../src/composables/useDialog')>(),
   showAlert: vi.fn().mockResolvedValue(undefined),
@@ -125,6 +128,12 @@ function mountStation(station: 'master' | 'slave') {
 }
 
 describe('station menus', () => {
+  it('slave opens Releases without using the Tauri updater', async () => {
+    mountStation('slave')
+    await click('menu-help')
+    await click('releases')
+    expect(BrowserOpenURL).toHaveBeenCalledWith('https://github.com/Karl-Dai/ModbusSim/releases')
+  })
   it('preserves master connection, reconnect and polling availability', async () => {
     const { connectionId, state } = mountStation('master')
     await click('menu-connection')
@@ -144,13 +153,13 @@ describe('station menus', () => {
     await click('menu-polling')
     expect(button('start-polling').getAttribute('aria-disabled')).toBe('false')
     await click('start-polling')
-    expect(invoke).toHaveBeenCalledWith('start_all_polling', { connectionId: 'master-1' })
+    expect(MasterApp.StartAllPolling).toHaveBeenCalledWith('master-1')
     await click('quick-stop-polling')
-    expect(invoke).toHaveBeenCalledWith('stop_all_polling', { connectionId: 'master-1' })
+    expect(MasterApp.StopAllPolling).toHaveBeenCalledWith('master-1')
     await click('menu-connection')
     await click('delete-connection')
     expect(showConfirm).toHaveBeenCalled()
-    expect(invoke).not.toHaveBeenCalledWith('delete_master_connection', expect.anything())
+    expect(MasterApp.DeleteConnection).not.toHaveBeenCalled()
   })
 
   it('preserves slave register guards and routes menu and quick actions to the same connection', async () => {
@@ -164,56 +173,43 @@ describe('station menus', () => {
     await click('import-csv')
     expect(registerActions.importCsv).toHaveBeenCalledTimes(1)
     await click('quick-start')
-    expect(invoke).toHaveBeenCalledWith('start_slave_connection', { id: 'slave-1' })
+    expect(SlaveApp.StartConnection).toHaveBeenCalledWith('slave-1')
     expect(state.value).toBe('Running')
     await click('menu-registers')
     expect(button('import-csv').getAttribute('aria-disabled')).toBe('true')
     expect(button('export-csv').getAttribute('aria-disabled')).toBe('false')
     await click('menu-connection')
     await click('stop')
-    expect(invoke).toHaveBeenCalledWith('stop_slave_connection', { id: 'slave-1' })
+    expect(SlaveApp.StopConnection).toHaveBeenCalledWith('slave-1')
     expect(state.value).toBe('Stopped')
   })
 
   it.each(['master', 'slave'] as const)('%s supports project shortcuts, busy exclusion and modal suppression', async station => {
     mountStation(station)
     let finishOpen!: (path: string) => void
-    vi.mocked(open).mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
+    const app = station === 'master' ? MasterApp : SlaveApp
+    const openDialog = app.OpenFileDialog
+    const saveDialog = app.SaveFileDialog
+    vi.mocked(openDialog).mockImplementationOnce(() => new Promise(resolve => { finishOpen = resolve }))
     button('menu-file').focus()
     await key('o', { ctrlKey: true })
     await key('o', { ctrlKey: true })
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(openDialog).toHaveBeenCalledTimes(1)
     finishOpen('/projects/菜单重构.modbusproj')
     await flushPromises()
-    expect(invoke).toHaveBeenCalledWith('load_project_file', { path: '/projects/菜单重构.modbusproj' })
+    expect(app.LoadProject).toHaveBeenCalledWith('/projects/菜单重构.modbusproj')
     expect(wrapper!.find('.toolbar-project-name').text()).toBe('菜单重构.modbusproj')
     button('menu-file').focus()
     await key('s', { metaKey: true })
-    expect(invoke).toHaveBeenCalledWith('save_project_file', { path: '/projects/菜单重构.modbusproj' })
-    vi.mocked(save).mockResolvedValueOnce('/projects/copy.modbusproj')
+    expect(app.SaveProject).toHaveBeenCalledWith('/projects/菜单重构.modbusproj')
+    vi.mocked(saveDialog).mockResolvedValueOnce('/projects/copy.modbusproj')
     await key('s', { ctrlKey: true, shiftKey: true })
-    expect(invoke).toHaveBeenCalledWith('save_project_file', { path: '/projects/copy.modbusproj' })
+    expect(app.SaveProject).toHaveBeenCalledWith('/projects/copy.modbusproj')
     const modal = document.createElement('div')
     modal.setAttribute('aria-modal', 'true')
     document.body.append(modal)
     await key('o', { ctrlKey: true })
-    expect(open).toHaveBeenCalledTimes(1)
+    expect(openDialog).toHaveBeenCalledTimes(1)
   })
 
-  it.each(['master', 'slave'] as const)('%s keeps update progress visible after the help menu closes', async station => {
-    const { checkUpdate } = mountStation(station)
-    let finishCheck!: (value: null) => void
-    checkUpdate.mockImplementationOnce(() => new Promise(resolve => { finishCheck = resolve }))
-    await click('menu-help')
-    await click('update')
-    expect(button('menu-help').getAttribute('aria-expanded')).toBe('false')
-    expect(wrapper!.find('[role="status"]').text()).toBe('检查中…')
-    await click('menu-help')
-    await click('update')
-    expect(checkUpdate).toHaveBeenCalledTimes(1)
-    finishCheck(null)
-    await flushPromises()
-    expect(wrapper!.find('[role="status"]').text()).toBe('')
-    expect(button('update').getAttribute('aria-disabled')).toBe('false')
-  })
 })

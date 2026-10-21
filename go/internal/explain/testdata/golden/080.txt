@@ -1,0 +1,2 @@
+!!ERROR!!
+不支持的传输方式：rtu-tcp（可选 auto / tcp / rtu / ascii）

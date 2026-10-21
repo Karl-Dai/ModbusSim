@@ -43,23 +43,11 @@ export type { DirectionFilter, FcFilter } from './composables/useLogFilter'
 export { useErrorHandler } from './composables/useErrorHandler'
 export type { Toast } from './composables/useErrorHandler'
 
-// Update progress
-export {
-  localizeUpdateError,
-  updateProgressLabel,
-  useUpdateProgress,
-} from './composables/useUpdateProgress'
-export type {
-  UpdateProgress,
-  UpdateProgressStage,
-} from './composables/useUpdateProgress'
-
 // Components
 export { default as AppDialog } from './components/AppDialog.vue'
 export { default as LangToggle } from './components/LangToggle.vue'
 export { default as LogPanelShell } from './components/LogPanelShell.vue'
 export { default as ThemeToggle } from './components/ThemeToggle.vue'
-export { default as UpdateDialog } from './components/UpdateDialog.vue'
 export { default as VersionBadge } from './components/VersionBadge.vue'
 
 // i18n
@@ -76,3 +64,6 @@ export { default as PathField } from './components/PathField.vue'
 export { vModal } from './directives/modal'
 
 export { RELEASE_HIGHLIGHTS } from './releaseNotes'
+
+export type { LogFields } from './composables/useLogFilter'
+export { desktopServicesKey } from './types/desktop'

@@ -1,12 +1,12 @@
 export const RELEASE_HIGHLIGHTS = {
-  "zh-CN": [
-    "主站线圈增加置 ON / 置 OFF 按钮，明确显示下发进度和失败原因。",
-    "写入后回读同一扫描组和从站，停止轮询时仍同步表格与解析值。",
-    "连接、扫描组和数据行支持键盘选择，回读失败明确标识旧值。"
+  'zh-CN': [
+    '主从站全面采用 Go 协议核心和 Wails 桌面框架。',
+    '保留线圈置 ON / 置 OFF、从站定向写入和停止轮询后的回读。',
+    '本版请手动安装；导入旧工程后保存为 Go v2 格式，请保留原文件备份。'
   ],
-  "en-US": [
-    "Explicit Set ON / Set OFF coil controls show sending status and failure details.",
-    "Writes read back the same scan group and slave, updating values even with polling stopped.",
-    "Connections, scan groups and data rows support keyboard selection, with clear stale-value readback errors."
+  'en-US': [
+    'Both apps now use the Go protocol core and Wails desktop host.',
+    'Keep explicit coil controls, station-aware writes and readback with polling stopped.',
+    'Install manually. Imported projects save in Go v2 format; keep the original backup.'
   ]
 } as const

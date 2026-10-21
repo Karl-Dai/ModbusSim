@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "type": "master",
+  "connections": [
+    {
+      "id": "master_1",
+      "name": "127.0.0.1:54264",
+      "transport": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 54264
+      },
+      "devices": [],
+      "scan_groups": [
+        {
+          "id": "f601a28f-1dad-4373-a6ad-2b091d02ce35",
+          "name": "SG-1488",
+          "slave_id": 1,
+          "function_code": 3,
+          "start_address": 0,
+          "count": 130,
+          "interval_ms": 1000,
+          "enabled": true
+        }
+      ],
+      "default_slave_id": 1,
+      "timeout_ms": 3000,
+      "requests": {
+        "interval_ms": 50,
+        "max_read_registers": 40,
+        "max_read_bits": 64
+      },
+      "reconnect_policy": {
+        "enabled": true,
+        "initial_delay_ms": 200,
+        "max_delay_ms": 1000,
+        "backoff_factor": 2.0,
+        "max_attempts": 3
+      }
+    },
+    {
+      "id": "master_2",
+      "name": "gateway",
+      "transport": {
+        "type": "rtu_over_tcp",
+        "host": "10.0.0.8",
+        "port": 503
+      },
+      "devices": [],
+      "scan_groups": [],
+      "default_slave_id": 247,
+      "timeout_ms": 750,
+      "requests": {
+        "interval_ms": 0,
+        "max_read_registers": 125,
+        "max_read_bits": 2000
+      },
+      "reconnect_policy": {
+        "enabled": true,
+        "initial_delay_ms": 1000,
+        "max_delay_ms": 30000,
+        "backoff_factor": 2.0
+      },
+      "socks5": {
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 1080,
+        "username": "",
+        "password": ""
+      }
+    }
+  ]
+}

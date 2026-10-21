@@ -1,221 +1,121 @@
 <script setup lang="ts">
-import { ref, inject, onMounted, onUnmounted, type Ref } from 'vue'
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { useI18n, showAlert } from 'shared-frontend'
+import { ref, inject, onMounted, onUnmounted, watch, type Ref } from 'vue'
+import * as App from '../../wailsjs/go/main/App'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
+import { useI18n, showAlert, vModal } from 'shared-frontend'
 import type { SlaveIdScanEvent, RegisterScanEvent, FoundRegisterDto } from '../types'
-
 const { t } = useI18n()
-
 const emit = defineEmits<{ (e: 'close'): void }>()
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const refreshTree = inject<() => void>('refreshTree')!
-
+const connectionID = selectedConnectionId.value!
 const tab = ref<'slave' | 'register'>('slave')
-const scanning = ref(false)
-const autoAddGroups = ref(true)
-
-// --- Slave ID Scan ---
-const slaveScanTimeout = ref(500)
-const slaveStartId = ref(1)
-const slaveEndId = ref(247)
-const slaveProgress = ref({ current_id: 0, total: 247, found_ids: [] as number[] })
-const slaveScanDone = ref(false)
-const slaveScanPhase = ref<'idle' | 'scanning_ids' | 'scanning_regs'>('idle')
-const slaveScanStatus = ref('')
-
-// --- Register Scan ---
-const regFunction = ref('read_holding_registers')
-const regStartAddr = ref(0)
-const regEndAddr = ref(99)
-const regChunkSize = ref(10)
-const regTimeout = ref(1000)
-const regProgress = ref({ current_address: 0, end_address: 0, found_registers: [] as FoundRegisterDto[] })
+const scanning = ref(false), cancelling = ref(false), autoAddGroups = ref(true)
+const slaveScanTimeout = ref(500), slaveStartId = ref(1), slaveEndId = ref(247)
+const slaveProgress = ref({ CurrentID: 0, Total: 247, FoundIDs: [] as number[] })
+const slaveScanDone = ref(false), slaveScanPhase = ref<'idle' | 'scanning_ids' | 'scanning_regs'>('idle'), slaveScanStatus = ref('')
+const regFunction = ref('read_holding_registers'), regStartAddr = ref(0), regEndAddr = ref(99), regChunkSize = ref(10), regTimeout = ref(1000)
+const regProgress = ref({ CurrentAddress: 0, EndAddress: 0, FoundRegisters: [] as FoundRegisterDto[] })
 const regScanDone = ref(false)
-
-const functionOptions = [
-  { value: 'read_coils', label: 'FC01 Read Coils' },
-  { value: 'read_discrete_inputs', label: 'FC02 Read Discrete Inputs' },
-  { value: 'read_holding_registers', label: 'FC03 Read Holding Registers' },
-  { value: 'read_input_registers', label: 'FC04 Read Input Registers' },
-]
-
-let unlistenSlave: (() => void) | null = null
-let unlistenReg: (() => void) | null = null
-
-onMounted(async () => {
-  unlistenSlave = await listen<SlaveIdScanEvent>('scan-slave-progress', (event) => {
-    const p = event.payload
-    if (p.connection_id !== selectedConnectionId.value) return
-    slaveProgress.value = { current_id: p.current_id, total: p.total, found_ids: p.found_ids }
-    if (p.done || p.cancelled) {
-      scanning.value = false
-      slaveScanDone.value = true
-      if ((p.done || p.cancelled) && p.found_ids.length > 0) {
-        scanAndAddAllRegistersForSlaves(p.found_ids)
-      }
-    }
-  })
-  unlistenReg = await listen<RegisterScanEvent>('scan-register-progress', (event) => {
-    const p = event.payload
-    if (p.connection_id !== selectedConnectionId.value) return
-    regProgress.value = { current_address: p.current_address, end_address: p.end_address, found_registers: p.found_registers }
-    if (p.done || p.cancelled) {
-      scanning.value = false
-      regScanDone.value = true
-      if ((p.done || p.cancelled) && p.found_registers.length > 0 && autoAddGroups.value) {
-        createScanGroupsFromRegisters(p.found_registers, regFunction.value)
-      }
-    }
-  })
+const functionOptions = [ { value: 'read_coils', label: 'FC01 Read Coils' }, { value: 'read_discrete_inputs', label: 'FC02 Read Discrete Inputs' }, { value: 'read_holding_registers', label: 'FC03 Read Holding Registers' }, { value: 'read_input_registers', label: 'FC04 Read Input Registers' } ]
+let disposed = false, slaveTaskID: string | null = null, registerTaskID: string | null = null
+let startingSlave = false, startingRegister = false
+const pendingSlaves = new Map<string, SlaveIdScanEvent>(), pendingRegisters = new Map<string, RegisterScanEvent>()
+let unlistenSlave: (() => void) | undefined, unlistenReg: (() => void) | undefined
+function close() { if (!scanning.value && slaveScanPhase.value === 'idle') emit('close') }
+async function handleSlave(p: SlaveIdScanEvent) {
+ if (disposed || p.ConnectionID !== connectionID) return
+ if (startingSlave) { pendingSlaves.set(p.TaskID, p); return }
+ if (p.TaskID !== slaveTaskID) return
+ slaveProgress.value = { CurrentID: p.CurrentID, Total: p.Total, FoundIDs: p.FoundIDs }
+ if (p.Done || p.Cancelled) {
+  slaveTaskID = null; scanning.value = false; cancelling.value = false; slaveScanDone.value = true; slaveScanPhase.value = 'idle'
+  if (p.Done && !p.Cancelled && p.FoundIDs.length) await addSlaveGroups(p.FoundIDs)
+ }
+}
+async function handleRegister(p: RegisterScanEvent) {
+ if (disposed || p.ConnectionID !== connectionID) return
+ if (startingRegister) { pendingRegisters.set(p.TaskID, p); return }
+ if (p.TaskID !== registerTaskID) return
+ regProgress.value = { CurrentAddress: p.CurrentAddress, EndAddress: p.EndAddress, FoundRegisters: p.FoundRegisters }
+ if (p.Done || p.Cancelled) {
+  registerTaskID = null; scanning.value = false; cancelling.value = false; regScanDone.value = true
+  if (p.Done && !p.Cancelled && autoAddGroups.value && p.FoundRegisters.length) await addRegisterGroups(p.FoundRegisters, regFunction.value)
+ }
+}
+function report(error: unknown) { if (!disposed) void showAlert(String(error)) }
+onMounted(() => {
+ unlistenSlave = EventsOn('scan-slave-progress', (p: SlaveIdScanEvent) => { void handleSlave(p).catch(report) })
+ unlistenReg = EventsOn('scan-register-progress', (p: RegisterScanEvent) => { void handleRegister(p).catch(report) })
 })
-
 onUnmounted(() => {
-  unlistenSlave?.()
-  unlistenReg?.()
+ disposed = true; unlistenSlave?.(); unlistenReg?.()
+ if (scanning.value) void App.CancelScan(connectionID, tab.value === 'slave' ? 'slave_scan' : 'register_scan').catch(() => {})
 })
-
+watch(selectedConnectionId, id => { if (id !== connectionID) emit('close') })
+const intIn = (v: number, min: number, max: number) => Number.isInteger(v) && v >= min && v <= max
 async function startSlaveScan() {
-  if (!selectedConnectionId.value) return
-  scanning.value = true
-  slaveScanDone.value = false
-  slaveProgress.value = { current_id: 0, total: 247, found_ids: [] }
-  try {
-    await invoke('start_slave_id_scan', {
-      connectionId: selectedConnectionId.value,
-      request: { start_id: slaveStartId.value, end_id: slaveEndId.value, timeout_ms: slaveScanTimeout.value },
-    })
-  } catch (e) {
-    scanning.value = false
-    await showAlert(String(e))
-  }
+ if (scanning.value) return
+ if (!intIn(slaveStartId.value, 1, 247) || !intIn(slaveEndId.value, slaveStartId.value, 247) || !intIn(slaveScanTimeout.value, 1, 600000)) { await showAlert(t('errors.invalidScanRange')); return }
+ scanning.value = true; cancelling.value = false; startingSlave = true; slaveScanDone.value = false; slaveScanPhase.value = 'scanning_ids'
+ slaveProgress.value = { CurrentID: slaveStartId.value - 1, Total: slaveEndId.value - slaveStartId.value + 1, FoundIDs: [] }
+ try {
+  slaveTaskID = await App.StartSlaveIDScan(connectionID, { StartID: slaveStartId.value, EndID: slaveEndId.value, TimeoutMS: slaveScanTimeout.value })
+  startingSlave = false
+  const pending = pendingSlaves.get(slaveTaskID); pendingSlaves.clear()
+  if (disposed) { void App.CancelScan(connectionID, 'slave_scan').catch(() => {}); return }
+  if (pending) await handleSlave(pending)
+ } catch (e) { scanning.value = false; slaveScanPhase.value = 'idle'; report(e) }
+ finally { startingSlave = false }
 }
-
 async function startRegisterScan() {
-  if (!selectedConnectionId.value) return
-  scanning.value = true
-  regScanDone.value = false
-  regProgress.value = { current_address: 0, end_address: regEndAddr.value, found_registers: [] }
-  try {
-    await invoke('start_register_scan', {
-      connectionId: selectedConnectionId.value,
-      request: {
-        function: regFunction.value,
-        start_address: regStartAddr.value,
-        end_address: regEndAddr.value,
-        chunk_size: regChunkSize.value,
-        timeout_ms: regTimeout.value,
-      },
-    })
-  } catch (e) {
-    scanning.value = false
-    await showAlert(String(e))
-  }
+ if (scanning.value) return
+ if (!intIn(regStartAddr.value, 0, 65535) || !intIn(regEndAddr.value, regStartAddr.value, 65535) || !intIn(regChunkSize.value, 1, 2000) || !intIn(regTimeout.value, 1, 600000)) { await showAlert(t('errors.invalidScanRange')); return }
+ scanning.value = true; cancelling.value = false; startingRegister = true; regScanDone.value = false
+ regProgress.value = { CurrentAddress: regStartAddr.value, EndAddress: regEndAddr.value, FoundRegisters: [] }
+ try {
+  registerTaskID = await App.StartRegisterScan(connectionID, { Function: regFunction.value, StartAddress: regStartAddr.value, EndAddress: regEndAddr.value, ChunkSize: regChunkSize.value, TimeoutMS: regTimeout.value })
+  startingRegister = false
+  const pending = pendingRegisters.get(registerTaskID); pendingRegisters.clear()
+  if (disposed) { void App.CancelScan(connectionID, 'register_scan').catch(() => {}); return }
+  if (pending) await handleRegister(pending)
+ } catch (e) { scanning.value = false; report(e) }
+ finally { startingRegister = false }
 }
-
 async function cancelScan() {
-  if (!selectedConnectionId.value) return
-  const scanType = tab.value === 'slave' ? 'slave_scan' : 'register_scan'
-  try {
-    await invoke('cancel_scan', { connectionId: selectedConnectionId.value, scanType })
-  } catch { /* ignore */ }
+ if (cancelling.value) return
+ cancelling.value = true
+ try { await App.CancelScan(connectionID, tab.value === 'slave' ? 'slave_scan' : 'register_scan') } catch (e) { cancelling.value = false; report(e) }
 }
-
-function slaveProgressPct() {
-  if (slaveProgress.value.total === 0) return 0
-  return (slaveProgress.value.current_id / slaveProgress.value.total) * 100
+function slaveProgressPct() { return Math.max(0, Math.min(100, (slaveProgress.value.CurrentID - slaveStartId.value + 1) / slaveProgress.value.Total * 100)) }
+function regProgressPct() { return Math.max(0, Math.min(100, (regProgress.value.CurrentAddress - regStartAddr.value + 1) / (regEndAddr.value - regStartAddr.value + 1) * 100)) }
+function fmtHex(v: number) { return '0x' + (v & 65535).toString(16).toUpperCase().padStart(4, '0') }
+async function addRegisterGroups(regs: FoundRegisterDto[], fn: string) {
+ const sorted = [...regs].sort((a,b) => a.Address - b.Address)
+ const ranges: { start: number; count: number }[] = []
+ for (const r of sorted) { const last = ranges.at(-1); if (last && r.Address === last.start + last.count && last.count < 65535) last.count++; else ranges.push({ start: r.Address, count: 1 }) }
+ scanning.value = true
+ try { for (const r of ranges) { if (disposed) return; await App.AddScanGroup(connectionID, { ID: '', Name: `Scan ${r.start}-${r.start+r.count-1}`, Function: fn, StartAddress: r.start, Quantity: r.count, IntervalMS: 1000, Enabled: true, IsPolling: false }) }; refreshTree() }
+ finally { scanning.value = false }
 }
-
-function regProgressPct() {
-  const start = regStartAddr.value
-  const end = regProgress.value.end_address || regEndAddr.value
-  const cur = regProgress.value.current_address
-  if (end <= start) return 0
-  return ((cur - start) / (end - start)) * 100
-}
-
-function fmtHex(v: number): string {
-  return '0x' + (v & 0xFFFF).toString(16).toUpperCase().padStart(4, '0')
-}
-
-// Group contiguous addresses into scan groups
-function groupContiguous(regs: FoundRegisterDto[]): { start: number; count: number }[] {
-  if (regs.length === 0) return []
-  const sorted = [...regs].sort((a, b) => a.address - b.address)
-  const groups: { start: number; count: number }[] = []
-  let start = sorted[0].address
-  let prev = start
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].address === prev + 1) {
-      prev = sorted[i].address
-    } else {
-      groups.push({ start, count: prev - start + 1 })
-      start = sorted[i].address
-      prev = start
-    }
-  }
-  groups.push({ start, count: prev - start + 1 })
-  return groups
-}
-
-async function createScanGroupsFromRegisters(regs: FoundRegisterDto[], fn: string) {
-  if (!selectedConnectionId.value || regs.length === 0) return
-  const groups = groupContiguous(regs)
-  for (const g of groups) {
-    await invoke('add_scan_group', {
-      connectionId: selectedConnectionId.value,
-      request: {
-        name: `Scan ${g.start}-${g.start + g.count - 1}`,
-        function: fn,
-        start_address: g.start,
-        quantity: g.count,
-        interval_ms: 1000,
-      },
-    })
+async function addSlaveGroups(ids: number[]) {
+ slaveScanPhase.value = 'scanning_regs'; scanning.value = true
+ try {
+  for (const id of ids) for (const fc of functionOptions) {
+   if (disposed) return
+   slaveScanStatus.value = t('scanDialog.addingProgress', { id, fc: fc.label })
+   await App.AddScanGroup(connectionID, { ID: '', Name: `S${id} ${fc.label} 0-99`, Function: fc.value, StartAddress: 0, Quantity: 100, IntervalMS: 1000, Enabled: true, IsPolling: false, SlaveID: id })
   }
   refreshTree()
-}
-
-async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
-  if (!selectedConnectionId.value || slaveIds.length === 0) return
-  slaveScanPhase.value = 'scanning_regs'
-
-  const fcs = [
-    { fn: 'read_coils', label: 'Coil' },
-    { fn: 'read_discrete_inputs', label: 'DI' },
-    { fn: 'read_holding_registers', label: 'HR' },
-    { fn: 'read_input_registers', label: 'IR' },
-  ]
-
-  for (const sid of slaveIds) {
-    for (const fc of fcs) {
-      slaveScanStatus.value = t('scanDialog.addingProgress', { id: sid, fc: fc.label })
-      try {
-        await invoke('add_scan_group', {
-          connectionId: selectedConnectionId.value,
-          request: {
-            name: `S${sid} ${fc.label} 0-99`,
-            function: fc.fn,
-            start_address: 0,
-            quantity: 100,
-            interval_ms: 1000,
-            slave_id: sid,
-          },
-        })
-      } catch { /* ignore */ }
-    }
-  }
-
-  slaveScanStatus.value = ''
-  slaveScanPhase.value = 'idle'
-  refreshTree()
+ } finally { slaveScanStatus.value = ''; slaveScanPhase.value = 'idle'; scanning.value = false }
 }
 </script>
 
+
 <template>
   <Teleport to="body">
-    <div class="modal-backdrop" @click.self="emit('close')">
-      <div class="modal-box scan-dialog">
+    <div class="modal-backdrop" @click.self="close">
+      <div class="modal-box scan-dialog" v-modal="close" role="dialog" aria-modal="true" :aria-label="t('scanDialog.title')">
         <div class="modal-title">{{ t('scanDialog.title') }}</div>
 
         <div class="tab-bar">
@@ -244,7 +144,7 @@ async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
 
           <div class="action-row">
             <button v-if="!scanning && slaveScanPhase === 'idle'" class="btn-primary" @click="startSlaveScan">{{ t('scanDialog.startScan') }}</button>
-            <button v-else-if="scanning" class="btn-danger" @click="cancelScan">{{ t('common.cancel') }}</button>
+            <button v-else-if="scanning" class="btn-danger" :disabled="cancelling || slaveScanPhase === 'scanning_regs'" :aria-busy="cancelling" @click="cancelScan">{{ t('common.cancel') }}</button>
             <div v-else-if="slaveScanPhase === 'scanning_regs'" class="status-text">{{ slaveScanStatus }}</div>
           </div>
 
@@ -252,16 +152,16 @@ async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
             <div class="progress-bar-bg">
               <div class="progress-bar-fill" :style="{ width: slaveProgressPct() + '%' }"></div>
             </div>
-            <div class="progress-text">{{ slaveProgress.current_id }} / {{ slaveProgress.total }}</div>
+            <div class="progress-text">{{ slaveProgress.CurrentID }} / {{ slaveProgress.Total }}</div>
           </div>
 
-          <div v-if="slaveProgress.found_ids.length > 0" class="result-section">
-            <div class="result-title">{{ t('scanDialog.foundSlaves', { count: slaveProgress.found_ids.length }) }}</div>
+          <div v-if="slaveProgress.FoundIDs.length > 0" class="result-section">
+            <div class="result-title">{{ t('scanDialog.foundSlaves', { count: slaveProgress.FoundIDs.length }) }}</div>
             <div class="result-scroll">
               <table class="result-table">
                 <thead><tr><th>{{ t('dialog.slaveId') }}</th></tr></thead>
                 <tbody>
-                  <tr v-for="id in slaveProgress.found_ids" :key="id">
+                  <tr v-for="id in slaveProgress.FoundIDs" :key="id">
                     <td>{{ id }}</td>
                   </tr>
                 </tbody>
@@ -307,26 +207,26 @@ async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
 
           <div class="action-row">
             <button v-if="!scanning" class="btn-primary" @click="startRegisterScan">{{ t('scanDialog.startScan') }}</button>
-            <button v-else class="btn-danger" @click="cancelScan">{{ t('common.cancel') }}</button>
+            <button v-else class="btn-danger" :disabled="cancelling || slaveScanPhase === 'scanning_regs'" :aria-busy="cancelling" @click="cancelScan">{{ t('common.cancel') }}</button>
           </div>
 
           <div v-if="scanning || regScanDone" class="progress-section">
             <div class="progress-bar-bg">
               <div class="progress-bar-fill" :style="{ width: regProgressPct() + '%' }"></div>
             </div>
-            <div class="progress-text">{{ regProgress.current_address }} / {{ regProgress.end_address }}</div>
+            <div class="progress-text">{{ regProgress.CurrentAddress }} / {{ regProgress.EndAddress }}</div>
           </div>
 
-          <div v-if="regProgress.found_registers.length > 0" class="result-section">
-            <div class="result-title">{{ t('scanDialog.foundRegisters', { count: regProgress.found_registers.length }) }}</div>
+          <div v-if="regProgress.FoundRegisters.length > 0" class="result-section">
+            <div class="result-title">{{ t('scanDialog.foundRegisters', { count: regProgress.FoundRegisters.length }) }}</div>
             <div class="result-scroll">
               <table class="result-table">
                 <thead><tr><th>{{ t('table.address') }}</th><th>Hex</th><th>{{ t('dialog.simpleValue') }}</th></tr></thead>
                 <tbody>
-                  <tr v-for="reg in regProgress.found_registers" :key="reg.address">
-                    <td>{{ reg.address }}</td>
-                    <td class="mono">{{ fmtHex(reg.value) }}</td>
-                    <td class="mono">{{ reg.value }}</td>
+                  <tr v-for="reg in regProgress.FoundRegisters" :key="reg.Address">
+                    <td>{{ reg.Address }}</td>
+                    <td class="mono">{{ fmtHex(reg.Value) }}</td>
+                    <td class="mono">{{ reg.Value }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -336,7 +236,7 @@ async function scanAndAddAllRegistersForSlaves(slaveIds: number[]) {
         </div>
 
         <div class="modal-footer">
-          <button class="btn-secondary" @click="emit('close')" :disabled="scanning">{{ t('common.close') }}</button>
+          <button class="btn-secondary" @click="close" :disabled="scanning">{{ t('common.close') }}</button>
         </div>
       </div>
     </div>

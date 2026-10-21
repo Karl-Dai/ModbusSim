@@ -1,0 +1,21 @@
+slave 1 confirmed: wrote 3 coils starting from 00001
+
+── Byte-by-byte ──
+00 01  Transaction identifier  Sequence number 0x0001 assigned by the master to this exchange; the response echoes it
+00 00  Protocol identifier     0x0000 = standard Modbus protocol
+00 06  Length                  6 more bytes follow (unit identifier + data)
+01     Unit identifier         slave address: device 1
+0F     Function code           0x0F = Write Multiple Coils
+00 00  Start address           protocol address 0, PLC address 00001
+00 03  Write quantity          successfully wrote 3 coils
+
+── Technical details ──
+Transport: Modbus TCP (12 bytes total)
+Transaction ID: 0x0001
+Protocol ID: 0x0000
+Length field: 6 (6 bytes actually follow)
+Unit ID: 1
+Function: 0x0F (Write Multiple Coils)
+Start address: 0 (PLC 00001)
+Write quantity: 3
+PDU: 0F 00 00 00 03

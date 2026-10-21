@@ -1,5 +1,2 @@
-export interface ClientInfo {
-  id: number
-  peer_address: string
-  connected_at: string
-}
+import type { main } from '../../wailsjs/go/models'
+export type ClientInfo = main.ClientInfo

@@ -1,0 +1,23 @@
+The master asks slave 1 to "Write Single Coil": set coil 00001 to ON
+
+── Data details ──
+00001 = ON
+
+── Byte-by-byte ──
+01     Slave address  device 1
+05     Function code  0x05 = Write Single Coil
+00 00  Address        protocol address 0, PLC address 00001
+FF 00  Write value    0xFF00 = ON
+8C 3A  CRC check      CRC16 check passed
+
+── Notes ──
+CRC check passed
+
+── Technical details ──
+Transport: Modbus RTU (8 bytes total)
+Slave address: 1
+Function: 0x05 (Write Single Coil)
+Address: 0 (PLC 00001)
+Write value: 0xFF00 (ON)
+CRC16: 0x3A8C (wire order 8C 3A, passed)
+PDU: 05 00 00 FF 00
