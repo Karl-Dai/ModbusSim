@@ -1,5 +1,5 @@
 export namespace appstate {
-	
+
 	export interface AddDeviceRequest {
 	    ConnectionID: string;
 	    SlaveID: number;
@@ -75,7 +75,7 @@ export namespace appstate {
 }
 
 export namespace main {
-	
+
 	export interface ClientInfo {
 	    ID: number;
 	    PeerAddress: string;
@@ -132,7 +132,7 @@ export namespace main {
 }
 
 export namespace project {
-	
+
 	export interface ClientTLS {
 	    Enabled: boolean;
 	    CAFile?: string;
@@ -206,4 +206,3 @@ export namespace project {
 	}
 
 }
-

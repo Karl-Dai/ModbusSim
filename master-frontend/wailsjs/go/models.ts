@@ -1,5 +1,5 @@
 export namespace main {
-	
+
 	export interface FileFilter {
 	    Name: string;
 	    Extensions: string[];
@@ -12,7 +12,7 @@ export namespace main {
 }
 
 export namespace masterstate {
-	
+
 	export interface ConnectionInfo {
 	    ID: string;
 	    TargetAddress: string;
@@ -48,7 +48,7 @@ export namespace masterstate {
 	    ChunkSize: number;
 	    TimeoutMS: number;
 	}
-	
+
 	export interface ScanGroup {
 	    ID: string;
 	    Name: string;
@@ -77,7 +77,7 @@ export namespace masterstate {
 }
 
 export namespace project {
-	
+
 	export interface ClientTLS {
 	    Enabled: boolean;
 	    CAFile?: string;
@@ -131,4 +131,3 @@ export namespace project {
 	}
 
 }
-
