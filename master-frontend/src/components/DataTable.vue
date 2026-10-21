@@ -15,6 +15,7 @@ const emit = defineEmits<{
 const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedScanGroup = inject<Ref<ScanGroupInfo | null>>('selectedScanGroup')!
 const addrMode = inject<Ref<'hex' | 'dec'>>('addrMode')!
+const dataRefreshKey = inject<Ref<number>>('dataRefreshKey', ref(0))
 
 const values = ref<RegisterValueDto[]>([])
 const selectedIndices = ref<Set<number>>(new Set())
@@ -81,25 +82,33 @@ function stopPollTimer() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
 
-async function fetchCachedData() {
-  if (!selectedConnectionId.value || !selectedScanGroup.value) return
+let selectionGeneration = 0
+async function fetchCachedData(refresh = false) {
+  const connectionId = selectedConnectionId.value
+  const groupId = selectedScanGroup.value?.id
+  const generation = selectionGeneration
+  if (!connectionId || !groupId) return
   try {
     const data = await invoke<ReadResultDto | null>('get_poll_data', {
-      connectionId: selectedConnectionId.value,
-      groupId: selectedScanGroup.value.id,
+      connectionId, groupId, refresh,
     })
-    if (data && data.values.length > 0) {
+    if (generation !== selectionGeneration) return
+    if (data) {
       values.value = data.values
       lastUpdated.value = data.timestamp
-      errorMsg.value = ''
+      if (refresh) errorMsg.value = ''
+      emitSelection()
     }
-  } catch (_e) { /* ignore */ }
+  } catch (e) { if (generation === selectionGeneration) errorMsg.value = String(e) }
 }
 
+watch(dataRefreshKey, () => { void fetchCachedData(true) })
+
 onMounted(async () => { await setupListeners() })
-onUnmounted(() => { unlisten?.(); unlistenError?.(); stopPollTimer() })
+onUnmounted(() => { selectionGeneration++; unlisten?.(); unlistenError?.(); stopPollTimer() })
 
 watch([selectedConnectionId, selectedScanGroup], async () => {
+  const generation = ++selectionGeneration
   selectedIndices.value.clear()
   values.value = []
   lastUpdated.value = ''
@@ -108,7 +117,7 @@ watch([selectedConnectionId, selectedScanGroup], async () => {
   stopPollTimer()
   if (!selectedConnectionId.value || !selectedScanGroup.value) return
   await fetchCachedData()
-  startPollTimer()
+  if (generation === selectionGeneration) startPollTimer()
 }, { immediate: true })
 
 // --- Format helpers ---
@@ -251,7 +260,7 @@ function toggleAddrMode() {
   addrMode.value = addrMode.value === 'hex' ? 'dec' : 'hex'
 }
 
-function handleRowClick(index: number, event: MouseEvent) {
+function handleRowClick(index: number, event: MouseEvent | KeyboardEvent) {
   if (event.ctrlKey || event.metaKey) {
     if (selectedIndices.value.has(index)) {
       selectedIndices.value.delete(index)
@@ -340,6 +349,7 @@ const valueColumnLabel = computed(() => {
         <span class="register-count">{{ t('table.itemCount', { count: filteredValues.length }) }}</span>
       </div>
 
+      <div v-if="errorMsg && values.length > 0" class="read-error" role="alert">{{ t('dataTable.readFailed', { error: errorMsg }) }}</div>
       <div v-if="values.length === 0 && !errorMsg" class="empty-state">
         <div>
           <div>{{ t('valuePanel.noData') }}</div>
@@ -372,6 +382,7 @@ const valueColumnLabel = computed(() => {
             v-for="virtualRow in rowVirtualizer.getVirtualItems()"
             :key="displayRows[virtualRow.index]?.address ?? virtualRow.index"
             class="virtual-row"
+            role="button" tabindex="0"
             :class="{ selected: selectedIndices.has(virtualRow.index) }"
             :style="{
               position: 'absolute',
@@ -382,6 +393,8 @@ const valueColumnLabel = computed(() => {
               transform: `translateY(${virtualRow.start}px)`,
             }"
             @click="handleRowClick(virtualRow.index, $event)"
+            @keydown.enter.prevent="handleRowClick(virtualRow.index, $event)"
+            @keydown.space.prevent="handleRowClick(virtualRow.index, $event)"
           >
             <span class="vcol col-addr">{{ fmtAddress(displayRows[virtualRow.index].address) }}</span>
 
@@ -407,6 +420,8 @@ const valueColumnLabel = computed(() => {
 </template>
 
 <style scoped>
+.virtual-row:focus-visible { outline: 2px solid var(--c-blue); outline-offset: -2px; }
+.read-error { padding: 8px 12px; color: var(--c-red); font-size: 12px; overflow-wrap: anywhere; }
 .data-table-container {
   display: flex;
   flex-direction: column;

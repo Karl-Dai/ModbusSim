@@ -8,6 +8,28 @@ All notable changes to ModbusSim are documented in this file.
 
 ---
 
+## [0.17.8] - 2026-10-21
+
+### Highlights / 亮点
+
+- 主站线圈增加明确的“置 ON / 置 OFF”按钮，显示正在下发、成功或失败原因，避免控制入口藏在数值文字上。 / Master coils now have explicit Set ON / Set OFF buttons with sending, success and error feedback instead of a hidden text toggle.
+- 写入成功后主动回读同一扫描组和从站；停止轮询后仍能同步表格与右侧数值。 / Successful writes trigger a readback from the same scan group and slave, keeping the table and value panel synchronized even when polling is stopped.
+- 连接、扫描组和数据行支持键盘选择，回读失败会明确保留并标识旧值。 / Connections, scan groups and data rows support keyboard selection, and failed readbacks clearly identify retained values as stale.
+
+### Fixed 修复
+
+- 使用明确的 ON/OFF 目标值下发 FC05，发送期间阻止重复操作，避免按过期缓存反转到错误状态。 / Send explicit ON/OFF targets with FC05 and block duplicate commands while sending, avoiding toggles based on stale cached values.
+- 主动回读遵循扫描组从站 ID，未覆盖时使用连接默认 ID；缓存刷新同步更新当前选择的解析值。 / Active readback honors the scan group's slave ID or the connection default, and cache refreshes update the selected parsed values.
+- 下发失败和回读失败分别提示；定时读取旧缓存不会清除回读错误，切换扫描组后丢弃迟到结果。 / Report write and readback failures separately, preserve readback errors across old-cache fetches, and discard late results after switching scan groups.
+
+### Security 安全
+
+- 将 Vite 从 8.2.0 更新至 8.3.4，并同步构建依赖，修复依赖审计报告的编辑器启动相关高危问题。 / Update Vite from 8.2.0 to 8.3.4 and its build dependencies to fix the high-severity editor-launch advisory reported by dependency auditing.
+
+### Tests 测试
+
+- 新增 7 项前端回归测试，覆盖明确 OFF、重复下发、目标切换、错误反馈、停止轮询后的回读、旧缓存错误保留和迟到结果；扩展 TCP 与 RTU-over-TCP 的同从站回读验证。 / Add 7 frontend regressions for explicit OFF, duplicate sends, target changes, failure feedback, readback with polling stopped, stale-cache error retention and late results; extend TCP and RTU-over-TCP same-slave readback checks.
+
 ## [0.17.7] - 2026-10-20
 
 ### Highlights / 亮点

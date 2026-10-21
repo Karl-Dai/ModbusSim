@@ -924,7 +924,42 @@ pub async fn get_poll_data(
     state: State<'_, AppState>,
     connection_id: String,
     group_id: String,
+    refresh: Option<bool>,
 ) -> Result<Option<ReadResultDto>, String> {
+    if refresh.unwrap_or(false) {
+        let mut conns = state.master_connections.write().await;
+        let conn_state = conns
+            .get_mut(&connection_id)
+            .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+        let group = conn_state
+            .scan_groups
+            .iter()
+            .find(|g| g.id == group_id)
+            .cloned()
+            .ok_or_else(|| format!("Scan group not found: {}", group_id))?;
+        let result = conn_state
+            .connection
+            .read_with_slave(
+                group.slave_id,
+                group.function,
+                group.start_address,
+                group.quantity,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let timestamp = now_timestamp();
+        let dto = read_result_to_dto(
+            &group_id,
+            group.function,
+            group.start_address,
+            &result,
+            &timestamp,
+        );
+        conn_state
+            .cached_data
+            .insert(group_id, CachedPollData { result, timestamp });
+        return Ok(Some(dto));
+    }
     let conns = state.master_connections.read().await;
     let conn_state = conns
         .get(&connection_id)

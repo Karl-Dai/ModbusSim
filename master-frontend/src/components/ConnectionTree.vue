@@ -143,7 +143,10 @@ function fcLabel(fn: string): string {
       <!-- Connection node -->
       <div
         :class="['tree-node', { selected: selectedNodeId === conn.info.id }]"
+        role="button" tabindex="0"
         @click="selectConnection(conn)"
+        @keydown.enter.prevent="selectConnection(conn)"
+        @keydown.space.prevent="selectConnection(conn)"
         @contextmenu="showContextMenu($event, 'connection', conn.info.id)"
       >
         <span class="node-expand" @click.stop="toggleExpand(conn)">
@@ -160,7 +163,10 @@ function fcLabel(fn: string): string {
           v-for="group in conn.scanGroups"
           :key="group.id"
           :class="['tree-node', 'tree-child', { selected: selectedNodeId === `${conn.info.id}:${group.id}` }]"
+          role="button" tabindex="0"
           @click="selectScanGroup(conn, group)"
+          @keydown.enter.prevent="selectScanGroup(conn, group)"
+          @keydown.space.prevent="selectScanGroup(conn, group)"
           @contextmenu="showContextMenu($event, 'scan_group', conn.info.id, group.id)"
         >
           <span :class="['poll-indicator', { active: group.is_polling }]"></span>
@@ -185,6 +191,7 @@ function fcLabel(fn: string): string {
 </template>
 
 <style scoped>
+.tree-node:focus-visible { outline: 2px solid var(--c-blue); outline-offset: -2px; }
 .tree-container {
   padding: 4px 0;
   font-size: 12px;

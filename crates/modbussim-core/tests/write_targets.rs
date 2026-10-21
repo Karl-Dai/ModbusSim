@@ -104,6 +104,17 @@ async fn exercise_write_targets(rtu: bool) {
     assert_written(&slave, 1, false, 0).await;
     assert_eq!(master.config.slave_id, 1);
 
+    // A write readback must use the scan group's station, including with polling stopped.
+    master.stop_all_scans().await;
+    assert!(matches!(
+        master.read_with_slave(group.slave_id, ReadFunction::ReadCoils, 10, 1).await.unwrap(),
+        ReadResult::Coils(values) if values == vec![true]
+    ));
+    assert!(matches!(
+        master.read(ReadFunction::ReadCoils, 10, 1).await.unwrap(),
+        ReadResult::Coils(values) if values == vec![false]
+    ));
+
     // Missing/null command targets must reset the shared TCP context to the default.
     master
         .write_single_coil_with_slave(None, 10, true)

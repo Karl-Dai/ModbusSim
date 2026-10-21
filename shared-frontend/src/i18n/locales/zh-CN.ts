@@ -429,6 +429,12 @@ const messages = {
     deleteRegister: '删除寄存器',
   },
   valuePanel: {
+    setOn: '置 ON',
+    setOff: '置 OFF',
+    setCoil: '将 {address} 置为 {value}',
+    writing: '正在下发…',
+    writeSuccess: '下发成功',
+    writeFailed: '下发失败：{error}',
     writeTarget: '写入目标：从站 ID {id}（扫描组）',
     writeDefaultTarget: '写入目标：连接的默认从站 ID',
     contiguousHint: '请选择连续寄存器以解析或写入多字值',
@@ -442,6 +448,7 @@ const messages = {
     startPollingHint: '请先启动轮询',
   },
   dataTable: {
+    readFailed: '读取失败（当前显示上次的值）：{error}',
     searchAddress: '搜索地址...',
     noData: '无数据',
     startPollingHint: '需先启动轮询',

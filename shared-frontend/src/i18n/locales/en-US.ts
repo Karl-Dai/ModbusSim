@@ -426,6 +426,12 @@ const messages: Messages = {
     deleteRegister: 'Delete Register',
   },
   valuePanel: {
+    setOn: 'Set ON',
+    setOff: 'Set OFF',
+    setCoil: 'Set {address} to {value}',
+    writing: 'Sending…',
+    writeSuccess: 'Write succeeded',
+    writeFailed: 'Write failed: {error}',
     writeTarget: 'Write target: Slave ID {id} (scan group)',
     writeDefaultTarget: 'Write target: connection’s default Slave ID',
     contiguousHint: 'Select consecutive registers to parse or write a multi-word value',
@@ -439,6 +445,7 @@ const messages: Messages = {
     startPollingHint: 'Start polling first',
   },
   dataTable: {
+    readFailed: 'Read failed (showing previous values): {error}',
     searchAddress: 'Search address...',
     noData: 'No data available',
     startPollingHint: 'Start the connection',

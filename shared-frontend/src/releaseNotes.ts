@@ -1,12 +1,12 @@
 export const RELEASE_HIGHLIGHTS = {
   "zh-CN": [
-    "证书路径字段优先显示文件名，悬停查看完整路径，点击即可编辑。",
-    "macOS 文件选择框改为可自由拖动的独立窗口。",
-    "子站支持 PEM 格式的 RSA 私钥，TLS 启动失败会明确报错。"
+    "主站线圈增加置 ON / 置 OFF 按钮，明确显示下发进度和失败原因。",
+    "写入后回读同一扫描组和从站，停止轮询时仍同步表格与解析值。",
+    "连接、扫描组和数据行支持键盘选择，回读失败明确标识旧值。"
   ],
   "en-US": [
-    "Certificate path fields lead with the file name; hover for the full path, click to edit.",
-    "The macOS file picker is now a free-standing window that can be dragged anywhere.",
-    "Slave accepts PEM-encoded RSA keys and reports TLS startup failures clearly."
+    "Explicit Set ON / Set OFF coil controls show sending status and failure details.",
+    "Writes read back the same scan group and slave, updating values even with polling stopped.",
+    "Connections, scan groups and data rows support keyboard selection, with clear stale-value readback errors."
   ]
 } as const

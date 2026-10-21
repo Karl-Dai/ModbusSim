@@ -357,13 +357,26 @@ impl MasterConnection {
         start_address: u16,
         quantity: u16,
     ) -> Result<ReadResult, MasterError> {
+        self.read_with_slave(None, function, start_address, quantity)
+            .await
+    }
+
+    /// Read back the same station used by a scan group or write command.
+    pub async fn read_with_slave(
+        &self,
+        slave_id: Option<u8>,
+        function: ReadFunction,
+        start_address: u16,
+        quantity: u16,
+    ) -> Result<ReadResult, MasterError> {
+        let slave_id = self.resolve_write_slave_id(slave_id)?;
         let transport_ctx = self.get_transport_ctx()?;
         execute_read_batched(
             &transport_ctx,
             &self.request_pacer,
             &self.config.requests,
             self.log_collector.as_ref(),
-            self.config.slave_id,
+            slave_id,
             function,
             start_address,
             quantity,

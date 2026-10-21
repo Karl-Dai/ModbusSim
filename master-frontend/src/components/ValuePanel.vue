@@ -2,7 +2,7 @@
 import { inject, computed, ref, watch, nextTick, type Ref, type Directive } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { RegisterValueDto, ScanGroupInfo } from '../types'
-import { swapBytes16, float32ToU16Pair, use16BitFormat, use32BitFormat, use64BitFormat, useI18n, formatAddress, showAlert, type ByteOrder } from 'shared-frontend'
+import { swapBytes16, float32ToU16Pair, use16BitFormat, use32BitFormat, use64BitFormat, useI18n, formatAddress, type ByteOrder } from 'shared-frontend'
 
 const { t } = useI18n()
 
@@ -17,6 +17,10 @@ const selectedConnectionId = inject<Ref<string | null>>('selectedConnectionId')!
 const selectedScanGroup = inject<Ref<ScanGroupInfo | null>>('selectedScanGroup')!
 const selectedRegisters = inject<Ref<RegisterValueDto[]>>('selectedRegisters')!
 const addrMode = inject<Ref<'hex' | 'dec'>>('addrMode', ref('hex') as Ref<'hex' | 'dec'>)
+const refreshData = inject<() => void>('refreshData', () => {})
+const writing = ref(false)
+const writeStatus = ref('')
+const writeFailed = ref(false)
 
 const hasSelection = computed(() => selectedRegisters.value.length > 0)
 
@@ -94,7 +98,7 @@ const { doubleValue, doubleReversed, doubleByteSwap, doubleLittleEndian } =
 // --- Editing ---
 
 function startEdit(field: string, currentValue: string) {
-  if (!isWritable.value) return
+  if (!isWritable.value || writing.value) return
 
   editReady.value = false
   editingField.value = field
@@ -115,7 +119,7 @@ watch(() => [
   selectedScanGroup.value?.function,
   writeSlaveId.value,
   selectedRegisters.value.map(r => `${r.address}:${r.is_bool}`).join(','),
-], () => cancelEdit(), { flush: 'sync' })
+], () => { cancelEdit(); writeStatus.value = '' }, { flush: 'sync' })
 
 function reverseParseField(field: string, input: string): { address: number; value: number }[] | null {
   const regs = sortedRegs.value
@@ -170,7 +174,7 @@ function reverseParseField(field: string, input: string): { address: number; val
 }
 
 async function writeRegisters(writes: { address: number; value: number }[]) {
-  if (!selectedConnectionId.value) return
+  if (!selectedConnectionId.value || writing.value) return
   const category = writeCategory.value
   if (!category || writes.length === 0) return
   // FC15/FC16 carry a start address and packed values: never discard holes,
@@ -182,34 +186,50 @@ async function writeRegisters(writes: { address: number; value: number }[]) {
       || (index > 0 && write.address !== writes[index - 1].address + 1)
       || !sortedRegs.value.some(reg => reg.address === write.address))) return
   const slave_id = writeSlaveId.value
+  const connectionId = selectedConnectionId.value
+  const groupId = selectedScanGroup.value?.id
+  const sameTarget = () => connectionId === selectedConnectionId.value
+    && groupId === selectedScanGroup.value?.id && slave_id === writeSlaveId.value
+  writing.value = true
+  writeFailed.value = false
+  writeStatus.value = t('valuePanel.writing')
   try {
     if (category === 'register') {
       if (writes.length === 1) {
         await invoke('write_single_register', {
-          connectionId: selectedConnectionId.value,
+          connectionId,
           request: { slave_id, address: writes[0].address, value: writes[0].value }
         })
       } else {
         await invoke('write_multiple_registers', {
-          connectionId: selectedConnectionId.value,
+          connectionId,
           request: { slave_id, address: writes[0].address, values: writes.map(w => w.value) }
         })
       }
     } else if (category === 'coil') {
       if (writes.length === 1) {
         await invoke('write_single_coil', {
-          connectionId: selectedConnectionId.value,
+          connectionId,
           request: { slave_id, address: writes[0].address, value: writes[0].value !== 0 }
         })
       } else {
         await invoke('write_multiple_coils', {
-          connectionId: selectedConnectionId.value,
+          connectionId,
           request: { slave_id, address: writes[0].address, values: writes.map(w => w.value !== 0) }
         })
       }
     }
+    if (sameTarget()) {
+      writeStatus.value = t('valuePanel.writeSuccess')
+      refreshData()
+    }
   } catch (e) {
-    await showAlert(String(e))
+    if (sameTarget()) {
+      writeFailed.value = true
+      writeStatus.value = t('valuePanel.writeFailed', { error: String(e) })
+    }
+  } finally {
+    writing.value = false
   }
 }
 
@@ -229,8 +249,8 @@ async function commitEdit() {
   await writeRegisters(writes)
 }
 
-async function toggleBool(reg: RegisterValueDto) {
-  await writeRegisters([{ address: reg.address, value: reg.raw_value !== 0 ? 0 : 1 }])
+async function setBool(reg: RegisterValueDto, value: boolean) {
+  await writeRegisters([{ address: reg.address, value: value ? 1 : 0 }])
 }
 
 async function handleEditKeydown(e: KeyboardEvent) {
@@ -263,6 +283,7 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
     <template v-else>
       <div class="panel-title">{{ panelTitle }}</div>
       <div class="panel-hint write-target">{{ writeTarget }}</div>
+      <div v-if="writeStatus" class="panel-hint write-status" :class="{ failed: writeFailed }" :role="writeFailed ? 'alert' : 'status'">{{ writeStatus }}</div>
       <div v-if="!allSameType" class="panel-hint">{{ t('valuePanel.mixedTypeHint') }}</div>
       <div v-else-if="selCount > 1 && !isBoolType && !contiguousSelection" class="panel-hint">{{ t('valuePanel.contiguousHint') }}</div>
       <div v-if="selectedScanGroup?.function === 'read_input_registers'" class="panel-hint">{{ t('valuePanel.writeHintInputReg') }}</div>
@@ -271,11 +292,15 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
       <!-- Bool type -->
       <template v-if="isBoolType">
         <div class="value-section">
-          <div v-for="reg in sortedRegs" :key="reg.address" class="value-row">
+          <div v-for="reg in sortedRegs" :key="reg.address" class="value-row coil-row">
             <span class="value-label">{{ fmtAddress(reg.address) }}</span>
-            <span :class="['value-data', { editable: isWritable }]" @click="isWritable && toggleBool(reg)">
+            <span class="value-data">
               {{ reg.raw_value !== 0 ? 'true (1)' : 'false (0)' }}
             </span>
+            <div v-if="isWritable" class="coil-controls" :aria-label="fmtAddress(reg.address)">
+              <button type="button" :disabled="writing" :aria-label="t('valuePanel.setCoil', { address: fmtAddress(reg.address), value: 'ON' })" @click="setBool(reg, true)">{{ t('valuePanel.setOn') }}</button>
+              <button type="button" :disabled="writing" :aria-label="t('valuePanel.setCoil', { address: fmtAddress(reg.address), value: 'OFF' })" @click="setBool(reg, false)">{{ t('valuePanel.setOff') }}</button>
+            </div>
           </div>
         </div>
       </template>
@@ -362,6 +387,15 @@ const writeCategory = computed<'register' | 'coil' | null>(() => {
 .value-section { padding: 4px 0; border-bottom: 1px solid var(--c-surface0); }
 .section-title { padding: 4px 12px; font-size: 11px; color: var(--c-subtext0); text-transform: uppercase; }
 .value-row { display: flex; justify-content: space-between; padding: 3px 12px; }
+.coil-row { flex-wrap: wrap; align-items: center; gap: 6px; }
+.coil-controls { display: flex; flex-basis: 100%; gap: 8px; padding: 4px 0; }
+.coil-controls button { flex: 1; min-height: 30px; border: 1px solid var(--c-blue); border-radius: 4px; background: var(--c-control-bg); color: var(--c-text); cursor: pointer; }
+.coil-controls button:hover { background: var(--c-hover-bg); }
+.coil-controls button:active { background: var(--c-surface1); }
+.coil-controls button:focus-visible { outline: 2px solid var(--c-blue); outline-offset: 2px; }
+.coil-controls button:disabled { opacity: 0.5; cursor: default; }
+.write-status { color: var(--c-green); overflow-wrap: anywhere; }
+.write-status.failed { color: var(--c-red); }
 .value-label { color: var(--c-subtext0); font-size: 12px; }
 .value-data { color: var(--c-text); font-size: 12px; text-align: right; }
 .value-data.mono { font-family: var(--font-mono); }

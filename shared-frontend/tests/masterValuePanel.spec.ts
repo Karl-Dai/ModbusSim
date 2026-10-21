@@ -16,11 +16,12 @@ function scanGroup(overrides: Partial<ScanGroupInfo> = {}): ScanGroupInfo {
     quantity: 4, interval_ms: 1000, enabled: true, is_polling: true, slave_id: 2, ...overrides }
 }
 let wrapper: ReturnType<typeof mount>
+const refreshData = vi.fn()
 function panel(regs: RegisterValueDto[], group = scanGroup()) {
   const selectedRegisters = ref(regs)
   const selectedScanGroup = ref(group)
   const selectedConnectionId = ref('connection-1')
-  wrapper = mount(ValuePanel, { global: { provide: { selectedConnectionId, selectedScanGroup, selectedRegisters } } })
+  wrapper = mount(ValuePanel, { global: { provide: { selectedConnectionId, selectedScanGroup, selectedRegisters, refreshData } } })
   return { selectedRegisters, selectedScanGroup, selectedConnectionId }
 }
 function row(label: string) {
@@ -116,10 +117,60 @@ describe('word order and scan-group write target', () => {
 
   it('uses the scan-group target for coil toggles', async () => {
     panel([register(0, true)], scanGroup({ function: 'read_coils' }))
-    await wrapper.find('.value-data').trigger('click')
+    await wrapper.get('button[aria-label="Set 0x0000 to ON"]').trigger('click')
     expect(invoke).toHaveBeenCalledExactlyOnceWith('write_single_coil', {
       connectionId: 'connection-1', request: { slave_id: 2, address: 0, value: true },
     })
+    await flushPromises()
+    expect(refreshData).toHaveBeenCalledOnce()
+    expect(wrapper.get('[role="status"]').text()).toBe('Write succeeded')
+  })
+
+  it('sends explicit OFF even if the cached value is already OFF', async () => {
+    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    await wrapper.get('button[aria-label="Set 0x0000 to OFF"]').trigger('click')
+    await flushPromises()
+    expect(invoke).toHaveBeenCalledExactlyOnceWith('write_single_coil', {
+      connectionId: 'connection-1', request: { slave_id: 2, address: 0, value: false },
+    })
+  })
+
+  it('blocks repeated commands while a write is pending', async () => {
+    let finish!: () => void
+    vi.mocked(invoke).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    const buttons = wrapper.findAll('button')
+    await buttons[0]!.trigger('click')
+    expect(buttons.every(button => button.element.disabled)).toBe(true)
+    expect(wrapper.get('[role="status"]').text()).toBe('Sending…')
+    await buttons[1]!.trigger('click')
+    expect(invoke).toHaveBeenCalledTimes(1)
+    finish()
+    await flushPromises()
+    expect(buttons.every(button => !button.element.disabled)).toBe(true)
+  })
+
+  it('does not refresh or show an old write result on a different target', async () => {
+    let finish!: () => void
+    vi.mocked(invoke).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+    const state = panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    await wrapper.find('button').trigger('click')
+    state.selectedScanGroup.value = scanGroup({ id: 'other', function: 'read_coils', slave_id: 3 })
+    finish()
+    await flushPromises()
+    expect(refreshData).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('shows a write error and allows retry without changing the cached value', async () => {
+    vi.mocked(invoke).mockRejectedValueOnce('Illegal data address')
+    panel([register(0, true)], scanGroup({ function: 'read_coils' }))
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Illegal data address')
+    expect(wrapper.find('.value-data').text()).toBe('false (0)')
+    expect(refreshData).not.toHaveBeenCalled()
+    expect(wrapper.findAll('button').every(button => !button.element.disabled)).toBe(true)
   })
 
   it('keeps an edit open across polling-only value updates', async () => {
